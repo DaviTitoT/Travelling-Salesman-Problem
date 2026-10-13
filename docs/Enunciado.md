@@ -55,7 +55,7 @@ O critério "Boas práticas de desenvolvimento e organização do repositório",
 
 - Restrições: Cada ponto de W aparece exatamente uma vez na ordem de visita. A rota começa e termina na base. A rota usa só arestas que existem no grafo. O grafo é conexo, então sempre existe uma rota válida.
 
-*Algoritmo: Simulated Annealing (SA)
+- Algoritmo: Simulated Annealing (SA)
 
 ## 5. Proposta de Aplicação
 
