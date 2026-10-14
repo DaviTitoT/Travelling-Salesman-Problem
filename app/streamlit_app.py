@@ -28,7 +28,7 @@ def draw_map(instance: Instance, table: DistanceTable, step: Step) -> Figure:
     fig, ax = plt.subplots(figsize=(7, 7))
     nx.draw_networkx_edges(instance.graph, pos, ax=ax, edge_color="#cccccc")
 
-    for order, style in ((step.current_order, "--"), (step.best_order, "-")):
+    for order, style in ((step.best_order, "-"), (step.current_order, "--")):
         path = Route.from_order(order, table).path
         xs, ys = zip(*(pos[v] for v in path), strict=True)
         color = "#999999" if style == "--" else "#1f77b4"
