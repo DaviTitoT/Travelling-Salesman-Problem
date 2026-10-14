@@ -200,6 +200,29 @@ uv run ruff check . && uv run ruff format --check .  # lint e formatação
 
 A configuração do `ruff` e do `pytest` fica em `pyproject.toml`.
 
+## Problemas conhecidos
+
+### Windows: `ImportError: DLL load failed while importing mtrand`
+
+A aplicação não abre, e a mensagem é:
+
+```
+ImportError: DLL load failed while importing mtrand:
+Uma política de Controlo de Aplicações bloqueou este ficheiro.
+```
+
+**Causa:** o **Smart App Control** do Windows 11 bloqueia uma DLL do NumPy (`numpy\random\mtrand.*.pyd`). O NumPy é usado pelo pandas, pelo matplotlib e pelo Streamlit. Não é um defeito do projeto.
+
+**Solução:**
+
+1. Abra **Segurança do Windows → Controlo de aplicações e browser → Definições do Smart App Control**.
+2. Mude a opção para **Desativado**.
+3. Rode a aplicação de novo com `uv run streamlit run app/streamlit_app.py`. Não é preciso reinstalar nada.
+
+> Em algumas versões do Windows 11, depois de desligado, o Smart App Control só volta a ser ligado reinstalando o sistema.
+
+Em computadores gerenciados (por exemplo, de empresas), o bloqueio pode vir de uma política do administrador, que o usuário não consegue desativar. Nesse caso, peça a liberação ao administrador ou rode o projeto no **WSL** (Ubuntu dentro do Windows), onde os mesmos comandos `uv` funcionam.
+
 ## Uso de IA Generativa
 
 A aplicação foi desenvolvida com o **Claude Code**, um assistente de programação que roda no terminal. Ele lê o repositório, executa comandos e edita arquivos, sempre sob supervisão do desenvolvedor. Não houve uso de chats isolados: todo o trabalho com a IA aconteceu dentro do repositório. Os passos foram estes:
