@@ -16,13 +16,14 @@ uv run pytest                               # all tests
 uv run pytest tests/test_ktsp.py::test_name # single test
 uv run ruff check . && uv run ruff format . # lint (incl. Google docstrings) + format
 uv run ruff format --check .                # format check only (as in README)
-uv run streamlit run app/streamlit_app.py   # demo app
+uv run python app/api.py                    # API for the React app
+cd web && npm install && npm run dev         # React app (requires Node.js)
 uv run python experiments/run.py            # experiments → experiments/results/
 ```
 
 ## Architecture
 
-`src/ktsp/` is the solver; `app/` and `experiments/` only consume it, importing from the submodules directly (`ktsp/__init__.py` re-exports nothing).
+`src/ktsp/` is the solver; `app/api.py` exposes it to the React UI in `web/`, and `experiments/` also consumes it, importing from the submodules directly (`ktsp/__init__.py` re-exports nothing).
 
 - `instance.py` — `Instance` (graph, base, deliveries) and the seeded synthetic grid-city generator (removes edges only if the graph stays connected; nodes carry `pos`, edges `weight`).
 - `distances.py` — `DistanceTable`, built via `build_distance_table(instance)`: Dijkstra from base and each delivery. **Index convention used everywhere: 0 = base, 1..k = deliveries.** A solution ("order") is a permutation of `1..k`.
