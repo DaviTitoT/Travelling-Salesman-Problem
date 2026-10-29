@@ -256,9 +256,11 @@ uv run python experiments/run.py --help                # lista os parâmetros
 | `--sa-seeds` | Sementes do SA: uma execução por semente em cada cidade e α | 0 a 9 |
 | `--t0` | Temperatura inicial | 100 |
 | `--iterations` | Orçamento: vizinhos avaliados por execução | 20000 |
-| `--output` | Pasta de saída | `experiments/results/` |
+| `--output` | Pasta onde cada execução cria a sua subpasta | `experiments/results/` |
 
-Ele grava na pasta de saída:
+Cada execução cria uma pasta nova dentro de `--output`, no formato `<timestamp>-<commit>` (com `-dirty` no fim quando há alterações não commitadas), por exemplo `20261029T055508Z-70fc5c5`. O timestamp é o horário de início em UTC (o `Z` no fim), e o commit são os 7 primeiros caracteres do commit do código. Assim nenhuma execução sobrescreve outra, e cada resultado mostra no nome de qual versão do código veio. Se o código tiver alterações não commitadas, o nome ganha o sufixo `-dirty` (por exemplo, `20261029T055508Z-70fc5c5-dirty`): esse resultado não pode ser reproduzido só com o commit, e o mesmo fica registrado no `params.json`.
+
+Cada pasta contém:
 
 - `params.json`: os parâmetros usados, o commit do código (e se havia alterações não commitadas) e as versões do Python e das bibliotecas, para repetir e rastrear o experimento;
 - `results.csv`: uma linha por execução (resultado bruto);

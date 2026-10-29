@@ -19,7 +19,7 @@ uv run ruff format --check .                # format check only (as in README)
 uv run ktsp --help                          # CLI: solve one instance (see src/ktsp/cli.py)
 uv run python app/api.py                    # API for the React app
 cd web && npm install && npm run dev         # React app (requires Node.js)
-uv run python experiments/run.py --help     # experiments (flags) → experiments/results/
+uv run python experiments/run.py --help     # experiments (flags) → experiments/results/<timestamp>-<commit>[-dirty]/
 ```
 
 ## Architecture
@@ -32,13 +32,13 @@ uv run python experiments/run.py --help     # experiments (flags) → experiment
 - `annealing.py` — `anneal()` is a **generator yielding one `Step` per iteration** (step 0 = initial solution). The app keeps all steps for animation/replay; experiments take only the last. Neighbor = 2-opt reversal, geometric cooling. **Every run spends exactly `max_iterations` evaluations** (no temperature-based stop), so runs with different α/T0 are compared with the same budget; do not reintroduce an early stop. `tabu_tenure > 0` turns on an optional SA + Tabu hybrid (recently drawn 2-opt moves are skipped without spending budget); `tabu_tenure = 0` must stay byte-for-byte the plain SA, which the golden test guards. SA is the assignment's algorithm; the hybrid exists only for comparison (`--tabu-tenure`, API `tabuTenure` 0–100, UI "Modo de busca").
 - `baselines.py` — nearest neighbor (also the SA starting solution) and brute-force optimum (k ≤ `MAX_BRUTE_FORCE_K`, else `ValueError`).
 - `pipeline.py` — `solve(size, k, seed, sa_seed, params)`: the single generate+anneal path shared by the CLI (`cli.py`, entry point `ktsp`) and `app/api.py` (`saSeed` in the payload; UI defaults in `web/src/App.jsx` mirror `DEFAULT_*` here and `AnnealingParams`).
-- `experiments/run.py` — the experiment grid (k values, α, city seeds, a list of SA seeds, grid size, budget) comes from argparse flags with fixed defaults; every (city, α) runs once per SA seed. Metrics are relative to a reference: the brute-force optimum for k ≤ 8, otherwise the best route found across all runs of that city (`reference_is_optimum` flags which). It writes `params.json` (flags + git commit + Python/library versions), `results.csv` (raw, one row per run), `summary.csv` and PNG charts to `--output` (default `experiments/results/`, git-ignored). The default grid takes ~3 minutes.
+- `experiments/run.py` — the experiment grid (k values, α, city seeds, a list of SA seeds, grid size, budget) comes from argparse flags with fixed defaults; every (city, α) runs once per SA seed. Metrics are relative to a reference: the brute-force optimum for k ≤ 8, otherwise the best route found across all runs of that city (`reference_is_optimum` flags which). It writes `params.json` (flags + git commit + Python/library versions), `results.csv` (raw, one row per run), `summary.csv` and PNG charts to a new folder `--output/<UTC timestamp>-<short commit>[-dirty]` (`-dirty` = uncommitted changes) (default `--output` is `experiments/results/`, git-ignored); it never overwrites an earlier run. The default grid takes ~3 minutes.
 
 ## Determinism (required: same results on any machine)
 
 - All randomness comes from two explicit seeds: `seed` (city) and `sa_seed` (SA), each passed to its own `random.Random`. Never use the global `random`, unseeded RNGs, time, or set/dict iteration order that depends on hashing of non-int keys.
 - Python is pinned to 3.12 (`.python-version`, `requires-python`): `random`'s `randint`/`sample`/`shuffle` sequences may change across Python versions. `uv.lock` pins networkx.
-- `tests/test_ktsp.py::test_default_run_matches_reference_values` holds golden values for the default run. If an intentional algorithm change breaks it, update the values and regenerate `experiments/results/`; otherwise treat a failure as a reproducibility bug.
+- `tests/test_ktsp.py::test_default_run_matches_reference_values` holds golden values for the default run. If an intentional algorithm change breaks it, update the values and rerun the experiments; otherwise treat a failure as a reproducibility bug.
 - `seconds` in the experiment CSVs is the only machine-dependent output.
 
 ## The problem (from `docs/Enunciado.md`)
