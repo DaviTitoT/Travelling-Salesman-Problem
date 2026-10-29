@@ -1,15 +1,18 @@
 """Experimentos do Simulated Annealing sobre instâncias geradas.
 
-Varia k e a taxa de resfriamento α em várias sementes e compara o SA com o
-vizinho mais próximo (solução inicial) e, para k pequeno, com o ótimo exato.
+Varia k e a taxa de resfriamento α em várias cidades, roda o SA com várias
+sementes em cada uma e mede o desvio em relação à melhor rota conhecida: o ótimo
+exato para k pequeno ou a melhor rota achada nas execuções.
 
 Execução: ``uv run python experiments/run.py`` (``--help`` lista os parâmetros).
 Todos os parâmetros têm padrão fixo e são gravados em ``params.json`` junto dos
-resultados; só a coluna ``seconds`` depende da máquina.
+resultados; só a coluna ``seconds`` depende da
+máquina.
 """
 
 import argparse
 import json
+import math
 import random
 import time
 from pathlib import Path
@@ -21,7 +24,6 @@ from ktsp.annealing import AnnealingParams, anneal
 from ktsp.baselines import MAX_BRUTE_FORCE_K, brute_force, nearest_neighbor
 from ktsp.distances import build_distance_table
 from ktsp.instance import generate_instance
-from ktsp.pipeline import DEFAULT_SA_SEED
 from ktsp.solution import route_cost
 
 
@@ -50,11 +52,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="sementes das cidades",
     )
     parser.add_argument(
-        "--sa-seed", type=int, default=DEFAULT_SA_SEED, help="semente do SA"
+        "--sa-seeds",
+        type=int,
+        nargs="+",
+        default=list(range(10)),
+        help="sementes do SA (uma execução por semente em cada cidade e α)",
     )
     parser.add_argument("--t0", type=float, default=100.0, help="temperatura inicial")
     parser.add_argument(
-        "--iterations", type=int, default=20_000, help="máximo de iterações"
+        "--iterations",
+        type=int,
+        default=20_000,
+        help="orçamento: vizinhos avaliados por execução",
     )
     parser.add_argument(
         "--output",
@@ -66,7 +75,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def run_experiments(args: argparse.Namespace) -> pd.DataFrame:
-    """Executa todas as combinações e devolve uma linha por execução do SA."""
+    """Executa todas as combinações e devolve uma linha por execução do SA.
+
+    Cada combinação de cidade e α roda uma vez por semente do SA, porque o
+    resultado de um algoritmo com sorteio é uma distribuição, não um número.
+    """
     rows = []
     for k in args.k:
         for seed in args.seeds:
@@ -81,24 +94,35 @@ def run_experiments(args: argparse.Namespace) -> pd.DataFrame:
             )
             for alpha in args.alpha:
                 params = AnnealingParams(args.t0, alpha, args.iterations)
-                start = time.perf_counter()
-                rng = random.Random(args.sa_seed)
-                *_, last = anneal(table, initial, params, rng)
-                rows.append(
-                    {
-                        "k": k,
-                        "alpha": alpha,
-                        "seed": seed,
-                        "nn_cost": route_cost(initial, table),
-                        "sa_cost": last.best_cost,
-                        "opt_cost": optimum,
-                        "iterations": last.iteration,
-                        "seconds": time.perf_counter() - start,
-                    }
-                )
+                for sa_seed in args.sa_seeds:
+                    start = time.perf_counter()
+                    best_cost, found_at = math.inf, 0
+                    for step in anneal(table, initial, params, random.Random(sa_seed)):
+                        if step.best_cost < best_cost:
+                            best_cost, found_at = step.best_cost, step.iteration
+                    rows.append(
+                        {
+                            "k": k,
+                            "seed": seed,
+                            "alpha": alpha,
+                            "sa_seed": sa_seed,
+                            "nn_cost": route_cost(initial, table),
+                            "sa_cost": best_cost,
+                            "opt_cost": optimum,
+                            "found_at": found_at,
+                            "iterations": step.iteration,
+                            "seconds": time.perf_counter() - start,
+                        }
+                    )
     df = pd.DataFrame(rows)
+    # Referência: o ótimo (força bruta) quando existe; senão, a melhor rota achada
+    # em todas as execuções daquela cidade, que pode não ser o ótimo.
+    best_found = df.groupby(["k", "seed"]).sa_cost.transform("min")
+    df["reference"] = df.opt_cost.fillna(best_found)
+    df["reference_is_optimum"] = df.opt_cost.notna()
+    df["deviation_pct"] = 100 * (df.sa_cost - df.reference) / df.reference
+    df["hit"] = df.sa_cost == df.reference
     df["improvement_over_nn_pct"] = 100 * (df.nn_cost - df.sa_cost) / df.nn_cost
-    df["gap_to_opt_pct"] = 100 * (df.sa_cost - df.opt_cost) / df.opt_cost
     return df
 
 
@@ -123,9 +147,16 @@ def main() -> None:
     df = run_experiments(args)
     df.to_csv(results_dir / "results.csv", index=False)
 
-    summary = df.groupby(["k", "alpha"])[
-        ["improvement_over_nn_pct", "gap_to_opt_pct", "iterations", "seconds"]
-    ].mean()
+    summary = df.groupby(["k", "alpha"]).agg(
+        runs=("sa_cost", "size"),
+        reference_is_optimum=("reference_is_optimum", "all"),
+        deviation_mean_pct=("deviation_pct", "mean"),
+        deviation_std_pct=("deviation_pct", "std"),
+        hit_rate_pct=("hit", lambda hits: 100 * hits.mean()),
+        improvement_over_nn_pct=("improvement_over_nn_pct", "mean"),
+        found_at_mean=("found_at", "mean"),
+        seconds_mean=("seconds", "mean"),
+    )
     summary.to_csv(results_dir / "summary.csv")
     print(summary.round(3).to_string())
 
@@ -136,10 +167,16 @@ def main() -> None:
         results_dir / "improvement_over_nn.png",
     )
     plot_by_k(
-        df[df.k <= MAX_BRUTE_FORCE_K],
-        "gap_to_opt_pct",
-        "Gap médio para o ótimo (%)",
-        results_dir / "gap_to_optimum.png",
+        df,
+        "deviation_pct",
+        "Desvio médio da melhor rota conhecida (%)",
+        results_dir / "deviation.png",
+    )
+    plot_by_k(
+        df.assign(hit=100 * df.hit),
+        "hit",
+        "Taxa de acerto da melhor rota conhecida (%)",
+        results_dir / "hit_rate.png",
     )
 
 
