@@ -53,13 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--iterations",
         type=int,
         default=DEFAULT_PARAMS.max_iterations,
-        help="máximo de iterações",
-    )
-    parser.add_argument(
-        "--min-temperature",
-        type=float,
-        default=DEFAULT_PARAMS.min_temperature,
-        help="temperatura de parada",
+        help="orçamento: vizinhos avaliados",
     )
     return parser
 
@@ -69,9 +63,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        params = AnnealingParams(
-            args.t0, args.alpha, args.iterations, args.min_temperature
-        )
+        params = AnnealingParams(args.t0, args.alpha, args.iterations)
         run = solve(args.size, args.k, args.seed, args.sa_seed, params)
     except ValueError as error:
         parser.error(str(error))

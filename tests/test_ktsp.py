@@ -80,7 +80,7 @@ def test_default_run_matches_reference_values():
     assert run.instance.base == 43
     assert run.instance.deliveries == (21, 72, 131, 85, 23, 60, 79, 57, 50, 37)
     assert len(run.instance.graph.edges) == 189
-    assert (last.iteration, last.best_cost) == (2297, 273)
+    assert (last.iteration, last.best_cost) == (5000, 273)
     assert last.best_order == (1, 5, 8, 3, 4, 2, 6, 10, 9, 7)
 
 
@@ -105,3 +105,11 @@ def test_cli_prints_reproducible_command(capsys):
     main(["--k", "4", "--seed", "7"])
     assert capsys.readouterr().out == first
     assert "--sa-seed 0" in first and "Distância total (SA)" in first
+
+
+@pytest.mark.parametrize("alpha", [0.5, 0.99, 0.999])
+def test_annealing_spends_the_whole_budget(table, alpha):
+    # alpha = 0.5 leva T a 0 por underflow; a busca deve continuar sem erro
+    params = AnnealingParams(cooling_rate=alpha, max_iterations=3000)
+    steps = list(anneal(table, nearest_neighbor(table), params, random.Random(0)))
+    assert steps[-1].iteration == 3000

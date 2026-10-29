@@ -1,7 +1,9 @@
 """Simulated Annealing para o k-TSP.
 
 O algoritmo é um gerador: emite um ``Step`` por iteração. A aplicação usa todos
-os passos para animar a busca; os experimentos usam só o último.
+os passos para animar a busca; os experimentos usam só o último. Toda execução
+avalia exatamente ``max_iterations`` vizinhos, para que execuções com parâmetros
+diferentes sejam comparadas com o mesmo orçamento.
 """
 
 import math
@@ -20,19 +22,17 @@ class AnnealingParams:
     Attributes:
         initial_temperature: Temperatura inicial T0.
         cooling_rate: Fator alfa do resfriamento geométrico (T <- alfa * T).
-        max_iterations: Limite de iterações.
-        min_temperature: A busca para quando T fica abaixo deste valor.
+        max_iterations: Orçamento: quantidade de vizinhos avaliados.
     """
 
     initial_temperature: float = 100.0
     cooling_rate: float = 0.995
     max_iterations: int = 5000
-    min_temperature: float = 1e-3
 
     def __post_init__(self) -> None:
         """Rejeita parâmetros que tornariam a busca inválida."""
-        if self.initial_temperature <= 0 or self.min_temperature <= 0:
-            raise ValueError("as temperaturas devem ser positivas")
+        if self.initial_temperature <= 0:
+            raise ValueError("a temperatura inicial deve ser positiva")
         if not 0 < self.cooling_rate < 1:
             raise ValueError("a taxa de resfriamento deve estar entre 0 e 1")
         if self.max_iterations < 0:
@@ -107,14 +107,15 @@ def anneal(
         return
 
     for iteration in range(1, params.max_iterations + 1):
-        if temperature < params.min_temperature:
-            return
         candidate = two_opt_neighbor(current, rng)
         delta = route_cost(candidate, table) - current_cost
         worse = delta > 0
         # shortcut: math.exp vem da libm do sistema e pode diferir em 1 ulp entre
         # plataformas; só mudaria a decisão num empate de ~1e-16, sem efeito prático
-        accepted = not worse or rng.random() < math.exp(-delta / temperature)
+        # com T = 0 (underflow após muitas iterações) nenhuma piora é aceita
+        accepted = not worse or (
+            temperature > 0 and rng.random() < math.exp(-delta / temperature)
+        )
         if accepted:
             current, current_cost = candidate, current_cost + delta
             if current_cost < best_cost:
