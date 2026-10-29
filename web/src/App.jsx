@@ -18,9 +18,9 @@ function Field({ label, value, onChange, min, max, step = 1, suffix }) {
 
 function ChartCard({ title, icon: Icon, data, dataKey, color, domain }) {
   return <section className="chart-card"><div className="chart-title"><span className="icon-chip"><Icon size={16}/></span><h3>{title}</h3></div>
-    <div className="chart"><ResponsiveContainer width="100%" height="100%"><AreaChart data={data} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
+    <div className="chart"><ResponsiveContainer width="100%" height="100%"><AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
       <defs><linearGradient id={`fill-${dataKey}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={color} stopOpacity={0.18}/><stop offset="95%" stopColor={color} stopOpacity={0}/></linearGradient></defs>
-      <CartesianGrid stroke="#edf0f3" vertical={false}/><XAxis dataKey="iteration" tickLine={false} axisLine={false} tick={{ fill: '#8993a1', fontSize: 10 }} tickCount={5}/><YAxis domain={domain || ['auto','auto']} tickLine={false} axisLine={false} tick={{ fill: '#8993a1', fontSize: 10 }} width={40}/>
+      <CartesianGrid stroke="#edf0f3" vertical={false}/><XAxis dataKey="iteration" tickLine={false} axisLine={false} tick={{ fill: '#8993a1', fontSize: 10 }} tickCount={5}/><YAxis domain={domain || ['auto','auto']} tickLine={false} axisLine={false} tick={{ fill: '#8993a1', fontSize: 10 }} tickFormatter={(v) => fmt(v)} width={44}/>
       <Tooltip contentStyle={{ border: '1px solid #e7ebef', borderRadius: 10, fontSize: 12 }} labelFormatter={(v) => `Iteração ${fmt(v)}`} formatter={(v) => [fmt(v, 2), title]}/>
       <Area type="monotone" dataKey={dataKey} stroke={color} strokeWidth={2} fill={`url(#fill-${dataKey})`} dot={false}/>
     </AreaChart></ResponsiveContainer></div>
