@@ -3,7 +3,7 @@ import { Activity, ArrowDownRight, Bike, ChevronDown, CircleHelp, Play, RotateCc
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 // Mesmos valores padrão de src/ktsp/pipeline.py e AnnealingParams.
-const defaults = { seed: 42, saSeed: 0, size: 12, k: 10, initialTemperature: 100, coolingRate: 0.995, maxIterations: 5000 };
+const defaults = { seed: 42, saSeed: 0, size: 12, k: 10, initialTemperature: 100, coolingRate: 0.995, maxIterations: 5000, tabuTenure: 0 };
 const fmt = (value, digits = 0) => Number(value).toLocaleString('pt-BR', { maximumFractionDigits: digits });
 
 function Field({ label, value, onChange, min, max, step = 1, suffix }) {
@@ -82,6 +82,8 @@ export default function App() {
         <Field label="Temperatura inicial" value={params.initialTemperature} onChange={set('initialTemperature')} min={1} max={300} step={1}/>
         <Field label="Resfriamento α" value={params.coolingRate} onChange={set('coolingRate')} min={0.9} max={0.9999} step={0.0001}/>
         <label className="number-field">Orçamento (iterações) <input type="number" min="10" max="200000" step="500" value={params.maxIterations} onChange={(e) => set('maxIterations')(Number(e.target.value))}/></label>
+        <label className="number-field">Modo de busca <select value={params.tabuTenure > 0 ? 'hybrid' : 'sa'} onChange={(e) => set('tabuTenure')(e.target.value === 'hybrid' ? 10 : 0)}><option value="sa">SA puro</option><option value="hybrid">SA + Tabu</option></select></label>
+        {params.tabuTenure > 0 && <Field label="Lista tabu (movimentos)" value={params.tabuTenure} onChange={set('tabuTenure')} min={1} max={100}/>}
       </div>
       <button className="run-button" onClick={run} disabled={busy}><Play size={16} fill="currentColor"/>{busy ? 'Calculando rota…' : 'Executar algoritmo'}</button>
       <div className="sidebar-foot"><span className="status-dot"/> Algoritmo pronto para executar</div>
@@ -91,7 +93,7 @@ export default function App() {
       {error && <div className="error-banner">{error}</div>}
       {!data ? <section className="welcome-card"><div className="welcome-icon"><Sparkles size={24}/></div><h2>Pronto para otimizar?</h2><p>Configure o tamanho da cidade e os parâmetros do algoritmo. A execução vai gerar uma instância reproduzível e buscar uma boa ordem para visitar todas as entregas.</p><button onClick={run} disabled={busy}>{busy ? 'Executando…' : 'Gerar primeira rota'} <Play size={15}/></button><div className="welcome-note"><span/> A busca é uma heurística e não garante o ótimo global.</div></section> : <>
         <div className="summary-row"><div className="summary-card"><span className="summary-icon orange"><Bike size={17}/></span><div><small>ENTREGAS</small><strong>{data.k}<em> pontos</em></strong></div></div><div className="summary-card"><span className="summary-icon blue"><Activity size={17}/></span><div><small>MELHOR DISTÂNCIA</small><strong>{fmt(data.bestCost)}<em> unidades</em></strong></div></div><div className="summary-card"><span className="summary-icon green"><ArrowDownRight size={17}/></span><div><small>MELHORIA SOBRE INICIAL</small><strong>{fmt(improvement, 1)}<em>%</em></strong></div></div><div className="summary-card"><span className="summary-icon violet"><RotateCcw size={17}/></span><div><small>ORÇAMENTO NECESSÁRIO</small><strong>{fmt(data.foundAt)}<em> de {fmt(data.iterations)} iterações</em></strong></div></div></div>
-        <div className="workspace"><section className="map-card"><div className="card-head"><div><div className="card-kicker">INSTÂNCIA {String(data.seed).padStart(3, '0')}</div><h2>Mapa da cidade</h2></div><span className="live-pill"><i/> {step?.temperature < 0.05 ? 'BUSCA CONCLUÍDA' : 'HISTÓRICO DA BUSCA'}</span></div>
+        <div className="workspace"><section className="map-card"><div className="card-head"><div><div className="card-kicker">INSTÂNCIA {String(data.seed).padStart(3, '0')} · {data.tabuTenure > 0 ? `SA + TABU (${data.tabuTenure})` : 'SA PURO'}</div><h2>Mapa da cidade</h2></div><span className="live-pill"><i/> {step?.temperature < 0.05 ? 'BUSCA CONCLUÍDA' : 'HISTÓRICO DA BUSCA'}</span></div>
           <div className="map-wrap">{step && <RouteMap data={data} step={step}/>}</div>
           <div className="legend"><span><i className="legend-base">B</i> Base</span><span><i className="legend-delivery">1</i> Entregas</span><span><i className="legend-line"/> Melhor rota</span><span><i className="legend-dash"/> Rota atual</span></div>
           <div className="timeline"><div><strong>Reprodução da busca</strong><span>Iteração {fmt(step?.iteration ?? 0)} de {fmt(data.iterations)}</span></div><input aria-label="Iteração" type="range" min="0" max={history.length - 1} value={selected} onChange={(e) => setSelected(Number(e.target.value))}/><div className="timeline-actions"><button onClick={() => move(-1)} aria-label="Passo anterior">‹</button><button className="animate-button" onClick={() => { setAnimate(!animate); if (!animate) setSelected(0); }}><Play size={13} fill="currentColor"/>{animate ? 'Pausar' : 'Reproduzir'}</button><button onClick={() => move(1)} aria-label="Próximo passo">›</button><span>Temperatura <b>{fmt(step?.temperature ?? 0, 3)}</b></span></div></div>
