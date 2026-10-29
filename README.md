@@ -294,8 +294,14 @@ Cada pasta contém:
 
 - `params.json`: os parâmetros usados, o commit do código (e se havia alterações não commitadas) e as versões do Python e das bibliotecas, para repetir e rastrear o experimento;
 - `results.csv`: uma linha por execução (resultado bruto);
+- `search_progress.csv`: evolução média por iteração, agrupada por k e α, incluindo custo atual, melhor custo, aceitação e temperatura;
 - `summary.csv`: métricas por k e α (resultado derivado);
-- `deviation.png`, `hit_rate.png` e `improvement_over_nn.png`: as métricas abaixo, por k e α.
+- `deviation.png`, `hit_rate.png` e `improvement_over_nn.png`: as métricas finais abaixo, por k e α;
+- `search_progress.png`: melhoria média da rota atual e da melhor rota encontrada ao longo das iterações;
+- `acceptance_rate.png`: taxa de aceitação das soluções, suavizada em janelas de 1% do orçamento (mínimo de uma iteração);
+- `temperature.png`: cronograma de resfriamento para cada α, em escala logarítmica.
+
+Nos gráficos de evolução, os custos são expressos como melhoria percentual sobre a solução inicial de cada instância. Isso permite tirar a média de cidades diferentes sem misturar suas escalas de distância. A linha da melhor rota deve permanecer ou subir; a rota atual pode oscilar porque o SA aceita pioras para escapar de mínimos locais.
 
 | Métrica | O que responde | Como se calcula |
 | --- | --- | --- |

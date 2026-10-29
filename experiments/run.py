@@ -20,6 +20,7 @@ import random
 import subprocess
 import sys
 import time
+from array import array
 from datetime import UTC, datetime
 from importlib.metadata import version
 from pathlib import Path
@@ -169,19 +170,23 @@ def compare_results(original: Path, new: Path) -> str:
     return f"{differs} de {len(old)} execuções com resultados diferentes"
 
 
-def run_experiments(args: argparse.Namespace) -> pd.DataFrame:
-    """Executa todas as combinações e devolve uma linha por execução do SA.
+def run_experiments(args: argparse.Namespace) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Executa as combinações e devolve resultados e evolução média por iteração.
 
     Cada combinação de cidade e α roda uma vez por semente do SA, porque o
     resultado de um algoritmo com sorteio é uma distribuição, não um número.
+    A evolução é normalizada pelo custo inicial de cada instância, permitindo
+    comparar cidades de tamanhos diferentes.
     """
     rows = []
+    progress: dict[tuple[int, float], dict[str, array]] = {}
     for k in args.k:
         for seed in args.seeds:
             table = build_distance_table(
                 generate_instance(args.grid_size, args.grid_size, k, seed)
             )
             initial = nearest_neighbor(table)
+            nn_cost = route_cost(initial, table)
             optimum = (
                 route_cost(brute_force(table), table)
                 if k <= MAX_BRUTE_FORCE_K
@@ -191,17 +196,41 @@ def run_experiments(args: argparse.Namespace) -> pd.DataFrame:
                 params = AnnealingParams(args.t0, alpha, args.iterations)
                 for sa_seed in args.sa_seeds:
                     start = time.perf_counter()
+                    key = (k, alpha)
+                    if key not in progress:
+                        length = args.iterations + 1
+                        progress[key] = {
+                            name: array("d", [0.0]) * length
+                            for name in (
+                                "counts",
+                                "current_improvement",
+                                "best_improvement",
+                                "accepted",
+                                "temperature",
+                            )
+                        }
+                    totals = progress[key]
                     best_cost, found_at = math.inf, 0
                     for step in anneal(table, initial, params, random.Random(sa_seed)):
                         if step.best_cost < best_cost:
                             best_cost, found_at = step.best_cost, step.iteration
+                        iteration = step.iteration
+                        totals["counts"][iteration] += 1
+                        totals["current_improvement"][iteration] += (
+                            100 * (nn_cost - step.current_cost) / nn_cost
+                        )
+                        totals["best_improvement"][iteration] += (
+                            100 * (nn_cost - step.best_cost) / nn_cost
+                        )
+                        totals["accepted"][iteration] += step.accepted
+                        totals["temperature"][iteration] += step.temperature
                     rows.append(
                         {
                             "k": k,
                             "seed": seed,
                             "alpha": alpha,
                             "sa_seed": sa_seed,
-                            "nn_cost": route_cost(initial, table),
+                            "nn_cost": nn_cost,
                             "sa_cost": best_cost,
                             "opt_cost": optimum,
                             "found_at": found_at,
@@ -218,7 +247,32 @@ def run_experiments(args: argparse.Namespace) -> pd.DataFrame:
     df["deviation_pct"] = 100 * (df.sa_cost - df.reference) / df.reference
     df["hit"] = df.sa_cost == df.reference
     df["improvement_over_nn_pct"] = 100 * (df.nn_cost - df.sa_cost) / df.nn_cost
-    return df
+    progress_rows = []
+    for (k, alpha), totals in progress.items():
+        for iteration, count in enumerate(totals["counts"]):
+            if count == 0:
+                continue
+            progress_rows.append(
+                {
+                    "k": k,
+                    "alpha": alpha,
+                    "iteration": iteration,
+                    "runs": int(count),
+                    "current_improvement_pct": (
+                        totals["current_improvement"][iteration] / count
+                    ),
+                    "best_improvement_pct": (
+                        totals["best_improvement"][iteration] / count
+                    ),
+                    "acceptance_pct": (
+                        100 * totals["accepted"][iteration] / count
+                        if iteration > 0
+                        else math.nan
+                    ),
+                    "temperature": totals["temperature"][iteration] / count,
+                }
+            )
+    return df, pd.DataFrame(progress_rows)
 
 
 def environment() -> dict:
@@ -245,9 +299,104 @@ def plot_by_k(df: pd.DataFrame, column: str, ylabel: str, path: Path) -> None:
     ax = means.plot.bar(rot=0, figsize=(7, 4))
     ax.set_ylabel(ylabel)
     ax.legend(title="α")
+    for bars in ax.containers:
+        ax.bar_label(bars, fmt="%.1f", padding=3)
+    ax.set_ylim(bottom=0, top=ax.get_ylim()[1] * 1.1)
     ax.figure.tight_layout()
     ax.figure.savefig(path, dpi=150)
     plt.close(ax.figure)
+
+
+def plot_search_progress(progress: pd.DataFrame, iterations: int, path: Path) -> None:
+    """Plota o custo atual e o melhor custo médio ao longo da busca."""
+    ks = sorted(progress.k.unique())
+    fig, axes = plt.subplots(
+        len(ks), 1, figsize=(9, max(4, 3.5 * len(ks))), sharex=True, squeeze=False
+    )
+    for index, k in enumerate(ks):
+        ax = axes[index, 0]
+        for color_index, alpha in enumerate(sorted(progress.alpha.unique())):
+            data = progress[(progress.k == k) & (progress.alpha == alpha)]
+            color = f"C{color_index % 10}"
+            ax.plot(
+                data.iteration,
+                data.best_improvement_pct,
+                color=color,
+                label=f"α={alpha:g} melhor",
+            )
+            ax.plot(
+                data.iteration,
+                data.current_improvement_pct,
+                color=color,
+                linestyle="--",
+                alpha=0.7,
+                label=f"α={alpha:g} atual",
+            )
+        ax.set_title(f"k = {k}")
+        ax.set_ylabel("Melhoria sobre a rota inicial (%)")
+        ax.grid(True, alpha=0.3)
+        ax.legend()
+    axes[-1, 0].set_xlabel("Iteração")
+    axes[-1, 0].set_xlim(0, max(1, iterations))
+    fig.suptitle("Evolução da busca: melhor rota e rota atual")
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+
+
+def plot_acceptance_rate(progress: pd.DataFrame, iterations: int, path: Path) -> None:
+    """Plota a taxa de aceitação suavizada para cada k e α."""
+    ks = sorted(progress.k.unique())
+    fig, axes = plt.subplots(
+        len(ks), 1, figsize=(9, max(4, 3.5 * len(ks))), sharex=True, squeeze=False
+    )
+    window = max(1, iterations // 100)
+    for index, k in enumerate(ks):
+        ax = axes[index, 0]
+        for color_index, alpha in enumerate(sorted(progress.alpha.unique())):
+            data = progress[
+                (progress.k == k) & (progress.alpha == alpha) & (progress.iteration > 0)
+            ].sort_values("iteration")
+            smoothed = data.acceptance_pct.rolling(window, min_periods=1).mean()
+            ax.plot(
+                data.iteration,
+                smoothed,
+                color=f"C{color_index % 10}",
+                label=f"α={alpha:g}",
+            )
+        ax.set_title(f"k = {k}")
+        ax.set_ylabel("Aceitação (%)")
+        ax.set_ylim(0, 105)
+        ax.grid(True, alpha=0.3)
+        ax.legend()
+    axes[-1, 0].set_xlabel("Iteração")
+    axes[-1, 0].set_xlim(0, max(1, iterations))
+    fig.suptitle(f"Taxa de aceitação (média móvel de {window} iterações)")
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+
+
+def plot_temperature(
+    initial_temperature: float, alphas: list[float], iterations: int, path: Path
+) -> None:
+    """Plota a temperatura aplicada pelo resfriamento geométrico."""
+    fig, ax = plt.subplots(figsize=(8, 4))
+    iteration_values = range(iterations + 1)
+    for alpha in sorted(alphas):
+        temperatures = [
+            initial_temperature * alpha**iteration for iteration in iteration_values
+        ]
+        ax.plot(iteration_values, temperatures, label=f"α={alpha:g}")
+    ax.set_yscale("log")
+    ax.set_xlabel("Iteração")
+    ax.set_ylabel("Temperatura (escala log)")
+    ax.set_title("Cronograma de resfriamento")
+    ax.grid(True, which="both", alpha=0.3)
+    ax.legend(title="Taxa de resfriamento")
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
 
 
 def main() -> None:
@@ -277,8 +426,9 @@ def main() -> None:
     if original is not None:
         record["reproduces"] = args.params.parent.name
     (results_dir / "params.json").write_text(json.dumps(record, indent=2) + "\n")
-    df = run_experiments(args)
+    df, progress = run_experiments(args)
     df.to_csv(results_dir / "results.csv", index=False)
+    progress.to_csv(results_dir / "search_progress.csv", index=False)
 
     summary = df.groupby(["k", "alpha"]).agg(
         runs=("sa_cost", "size"),
@@ -310,6 +460,11 @@ def main() -> None:
         "hit",
         "Taxa de acerto da melhor rota conhecida (%)",
         results_dir / "hit_rate.png",
+    )
+    plot_search_progress(progress, args.iterations, results_dir / "search_progress.png")
+    plot_acceptance_rate(progress, args.iterations, results_dir / "acceptance_rate.png")
+    plot_temperature(
+        args.t0, args.alpha, args.iterations, results_dir / "temperature.png"
     )
     print(f"Resultados gravados em {results_dir}")
     if original is not None and (args.params.parent / "results.csv").exists():

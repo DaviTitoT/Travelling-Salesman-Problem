@@ -2,8 +2,11 @@ import importlib.util
 import json
 from pathlib import Path
 
+import matplotlib
 import pandas as pd
 import pytest
+
+matplotlib.use("Agg")
 
 # experiments/ não é um pacote: carrega o script pelo caminho.
 _spec = importlib.util.spec_from_file_location(
@@ -71,4 +74,57 @@ def test_compare_results_ignores_seconds(tmp_path):
     )
     assert run.compare_results(tmp_path / "a.csv", tmp_path / "c.csv").startswith(
         "1 de 2"
+    )
+
+
+def test_plot_by_k_labels_zero_values_and_starts_axis_at_zero(tmp_path, monkeypatch):
+    closed_figures = []
+    monkeypatch.setattr(run.plt, "close", closed_figures.append)
+    df = pd.DataFrame({"k": [3], "alpha": [0.99], "deviation_pct": [0.0]})
+
+    run.plot_by_k(df, "deviation_pct", "Desvio (%)", tmp_path / "deviation.png")
+
+    ax = closed_figures[0].axes[0]
+    assert [label.get_text() for label in ax.texts] == ["0.0"]
+    assert ax.get_ylim()[0] == 0
+    assert ax.get_ylim()[1] > 0
+
+
+def test_experiment_progress_tracks_search_and_generates_charts(tmp_path):
+    args, _ = run.parse_args(
+        [
+            "--grid-size",
+            "6",
+            "--k",
+            "3",
+            "--alpha",
+            "0.99",
+            "--seeds",
+            "0",
+            "--sa-seeds",
+            "0",
+            "--iterations",
+            "20",
+        ]
+    )
+
+    results, progress = run.run_experiments(args)
+
+    assert len(progress) == 21
+    assert progress.iloc[0].current_improvement_pct == 0
+    assert progress.iloc[0].best_improvement_pct == 0
+    assert pd.isna(progress.iloc[0].acceptance_pct)
+    assert progress.iloc[-1].best_improvement_pct == pytest.approx(
+        results.iloc[0].improvement_over_nn_pct
+    )
+    assert progress.best_improvement_pct.is_monotonic_increasing
+
+    run.plot_search_progress(progress, args.iterations, tmp_path / "progress.png")
+    run.plot_acceptance_rate(progress, args.iterations, tmp_path / "acceptance.png")
+    run.plot_temperature(
+        args.t0, args.alpha, args.iterations, tmp_path / "temperature.png"
+    )
+    assert all(
+        (tmp_path / name).is_file()
+        for name in ("progress.png", "acceptance.png", "temperature.png")
     )
