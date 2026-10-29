@@ -17,6 +17,7 @@ import platform
 import random
 import subprocess
 import time
+from datetime import UTC, datetime
 from importlib.metadata import version
 from pathlib import Path
 
@@ -74,7 +75,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--output",
         type=Path,
         default=Path(__file__).parent / "results",
-        help="pasta de saída",
+        help="pasta onde cada execução cria a subpasta <timestamp>-<commit>",
     )
     return parser
 
@@ -163,10 +164,14 @@ def plot_by_k(df: pd.DataFrame, column: str, ylabel: str, path: Path) -> None:
 def main() -> None:
     """Roda os experimentos e salva parâmetros, CSV, resumo e gráficos."""
     args = build_parser().parse_args()
-    results_dir = args.output
-    results_dir.mkdir(parents=True, exist_ok=True)
+    env = environment()
+    # Uma pasta por execução, <timestamp UTC>-<commit>, para nunca sobrescrever
+    # resultados anteriores e saber de qual versão do código cada um veio.
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    results_dir = args.output / f"{timestamp}-{(env['commit'] or 'sem-commit')[:7]}"
+    results_dir.mkdir(parents=True)
     params = {k: v for k, v in vars(args).items() if k != "output"}
-    record = {"params": params, "environment": environment()}
+    record = {"params": params, "environment": env}
     (results_dir / "params.json").write_text(json.dumps(record, indent=2) + "\n")
     df = run_experiments(args)
     df.to_csv(results_dir / "results.csv", index=False)
@@ -202,6 +207,7 @@ def main() -> None:
         "Taxa de acerto da melhor rota conhecida (%)",
         results_dir / "hit_rate.png",
     )
+    print(f"Resultados gravados em {results_dir}")
 
 
 if __name__ == "__main__":
