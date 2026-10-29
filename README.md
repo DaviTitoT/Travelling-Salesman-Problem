@@ -85,7 +85,7 @@ Aceitar pioras parece contraditório, mas é o que permite **escapar de mínimos
 
 ### Passo a passo
 
-1. **Solução inicial:** usa a heurística do *vizinho mais próximo*. Partindo da base, o entregador vai sempre ao ponto não visitado mais próximo.
+1. **Solução inicial configurável:** pode ser a heurística do *vizinho mais próximo* (padrão), que parte da base e escolhe sempre o ponto não visitado mais próximo, ou uma ordem aleatória reproduzível pela semente da instância.
 2. **Gerar um vizinho:** escolhe dois pontos da ordem e **inverte o trecho entre eles** (movimento *2-opt*). Por exemplo, `A B C D E` vira `A D C B E`. Esse movimento desfaz cruzamentos na rota.
 3. **Decidir se aceita:** seja Δ a diferença de distância entre o vizinho e a solução atual.
    - Se Δ ≤ 0 (o vizinho é melhor ou igual), **aceita sempre**.
@@ -103,6 +103,7 @@ O passo 3 é o centro do algoritmo:
 
 | Parâmetro | Efeito | Padrão |
 | --- | --- | --- |
+| Solução inicial | Estratégia usada para escolher a primeira ordem de visitas: vizinho mais próximo ou aleatória | Vizinho mais próximo |
 | Temperatura inicial T0 | Quanto maior, mais exploração no começo | 100 |
 | Resfriamento α | Mais perto de 1 resfria mais devagar: mais iterações e, em geral, rotas melhores | 0,995 |
 | Máximo de iterações | Limite de esforço computacional | 5000 |
@@ -111,7 +112,7 @@ O passo 3 é o centro do algoritmo:
 
 O resultado do Simulated Annealing é comparado com duas referências:
 
-- **Vizinho mais próximo:** a solução inicial. Mostra quanto o SA melhorou.
+- **Vizinho mais próximo:** uma referência gulosa para avaliar a busca. Na aplicação, a melhoria é calculada em relação à solução inicial selecionada; nos experimentos, a comparação usa o vizinho mais próximo.
 - **Força bruta:** testa todas as k! ordens e encontra o **ótimo exato**. Só é viável para k ≤ 8 e mostra quão longe o SA ficou do melhor possível (o *gap*).
 
 ## 5. A aplicação
@@ -120,24 +121,50 @@ A aplicação web permite ver o Simulated Annealing trabalhando, iteração por 
 
 ### Instalação e execução
 
-É preciso ter o [uv](https://docs.astral.sh/uv/) e o Node.js instalados. O
-solver continua em Python; a interface usa React e Vite.
+É preciso ter o [uv](https://docs.astral.sh/uv/) e o [Node.js LTS](https://nodejs.org/en/download)
+instalados. O Node.js inclui o npm. Se acabou de instalar o Node.js, feche e
+reabra o PowerShell para atualizar o `PATH`. Confira a instalação:
 
 ```bash
+node --version
+npm --version
+```
+
+O solver continua em Python; a interface usa React e Vite. Para executar no
+Windows, abra **dois terminais PowerShell** na raiz do repositório.
+
+**Terminal 1 — API Python:**
+
+```bash
+cd C:\Users\SEU_USUARIO\Travelling-Salesman-Problem
 uv sync
 uv run python app/api.py
 ```
 
-Em outro terminal:
+Deixe esse terminal aberto. Quando a mensagem `API k-TSP disponível em
+http://127.0.0.1:8000` aparecer, a API está pronta.
 
-```bash
-cd web
+**Terminal 2 — interface React:**
+
+```powershell
+cd C:\Users\SEU_USUARIO\Travelling-Salesman-Problem\web
 npm install
 npm run dev
 ```
 
-Abra o endereço mostrado pelo Vite (normalmente `http://localhost:5173`). O Vite
-encaminha as chamadas `/api` para a API Python em `http://127.0.0.1:8000`.
+`npm install` instala as dependências do frontend. Ele só precisa ser executado
+na primeira vez ou quando as dependências mudarem. Mantenha o terminal aberto e
+acesse o endereço informado pelo Vite, normalmente `http://localhost:5173`.
+O Vite encaminha as chamadas `/api` para a API Python em
+`http://127.0.0.1:8000`.
+
+**Importante:** execute `npm install` e `npm run dev` dentro da pasta `web`, onde
+está o `package.json`. A pasta `app` contém a API Python e não tem `package.json`.
+Se aparecer `npm is not recognized`, instale o Node.js LTS e reabra o PowerShell.
+Se aparecer `ENOENT` informando que não encontrou `package.json`, confira que o
+terminal está na pasta `web` (`Get-Location`).
+
+Para encerrar, pressione `Ctrl+C` em cada terminal.
 
 ### Usando, passo a passo
 
@@ -166,7 +193,11 @@ encaminha as chamadas `/api` para a API Python em `http://127.0.0.1:8000`.
 
 ## 6. Experimentos em lote
 
-O script abaixo roda o algoritmo em várias cidades, combinando valores de k, de α e de sementes:
+O script abaixo compara as duas estratégias de solução inicial em várias cidades,
+combinando valores de k, de α e de sementes. Para cada instância e configuração,
+o algoritmo roda uma vez iniciando pelo vizinho mais próximo e outra com uma
+ordem aleatória reproduzível; as execuções compartilham a mesma semente para o
+Simulated Annealing.
 
 ```bash
 uv run python experiments/run.py
@@ -175,9 +206,15 @@ uv run python experiments/run.py
 Ele grava os resultados em `experiments/results/`:
 
 - `results.csv`: uma linha por execução;
-- `summary.csv`: médias por k e α;
+- `summary.csv`: médias por estratégia inicial, k e α;
+- `initial_solution_comparison.png`: custos iniciais e finais médios das duas estratégias;
+- `improvement_by_initial_solution.png`: melhoria sobre a estratégia inicial escolhida;
 - `improvement_over_nn.png`: melhoria sobre o vizinho mais próximo;
 - `gap_to_optimum.png`: distância até o ótimo, para k ≤ 8.
+
+Os CSVs registram a estratégia inicial, seu custo e o custo final do SA. A
+métrica `improvement_over_initial_pct` permite comparar quanto cada execução
+melhorou em relação à sua própria solução de partida.
 
 Os valores testados ficam em constantes no início de `experiments/run.py`.
 
@@ -198,7 +235,7 @@ instance.py  →  distances.py  →  baselines.py  →  annealing.py  →  solut
 | `src/ktsp/distances.py` | Menores caminhos (Dijkstra) entre a base e os pontos de entrega |
 | `src/ktsp/solution.py` | Custo de uma ordem e expansão no caminho completo |
 | `src/ktsp/annealing.py` | Simulated Annealing (vizinho 2-opt e resfriamento geométrico) |
-| `src/ktsp/baselines.py` | Vizinho mais próximo e força bruta |
+| `src/ktsp/baselines.py` | Vizinho mais próximo, ordem aleatória e força bruta |
 | `app/api.py` | API local que executa o solver Python e entrega os dados à interface |
 | `web/` | Interface React com Vite, mapa, reprodução e gráficos |
 | `experiments/run.py` | Experimentos em lote |

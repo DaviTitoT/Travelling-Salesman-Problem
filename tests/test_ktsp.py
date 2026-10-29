@@ -5,7 +5,7 @@ import networkx as nx
 import pytest
 
 from ktsp.annealing import AnnealingParams, anneal
-from ktsp.baselines import brute_force, nearest_neighbor
+from ktsp.baselines import brute_force, nearest_neighbor, random_order
 from ktsp.distances import build_distance_table
 from ktsp.instance import generate_instance
 from ktsp.solution import Route
@@ -32,6 +32,14 @@ def test_generation_is_reproducible():
     b = generate_instance(5, 5, 4, seed=1)
     assert a.deliveries == b.deliveries
     assert sorted(a.graph.edges(data="weight")) == sorted(b.graph.edges(data="weight"))
+
+
+def test_random_initial_order_is_reproducible_and_valid(table):
+    first = random_order(table, random.Random(42))
+    second = random_order(table, random.Random(42))
+
+    assert first == second
+    assert sorted(first) == list(range(1, table.k + 1))
 
 
 def test_invalid_k_raises():

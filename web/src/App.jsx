@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Activity, ArrowDownRight, Bike, ChevronDown, CircleHelp, Play, RotateCcw, SlidersHorizontal, Sparkles } from 'lucide-react';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
-const defaults = { seed: 42, size: 12, k: 10, initialTemperature: 100, coolingRate: 0.995, maxIterations: 5000 };
+const defaults = { seed: 42, size: 12, k: 10, initialSolution: 'nearest_neighbor', initialTemperature: 100, coolingRate: 0.995, maxIterations: 5000 };
 const fmt = (value, digits = 0) => Number(value).toLocaleString('pt-BR', { maximumFractionDigits: digits });
 
 function Field({ label, value, onChange, min, max, step = 1, suffix }) {
@@ -77,6 +77,12 @@ export default function App() {
         <Field label="Tamanho da grade" value={params.size} onChange={set('size')} min={4} max={25} suffix=" × "/>
         <Field label="Pontos de entrega (k)" value={params.k} onChange={set('k')} min={1} max={Math.min(40, params.size ** 2 - 1)}/>
         <div className="group-label algorithm-label">Simulated Annealing</div>
+        <label className="select-field">Solução inicial
+          <select value={params.initialSolution} onChange={(event) => set('initialSolution')(event.target.value)}>
+            <option value="nearest_neighbor">Vizinho mais próximo</option>
+            <option value="random">Aleatória</option>
+          </select>
+        </label>
         <Field label="Temperatura inicial" value={params.initialTemperature} onChange={set('initialTemperature')} min={1} max={300} step={1}/>
         <Field label="Resfriamento α" value={params.coolingRate} onChange={set('coolingRate')} min={0.9} max={0.9999} step={0.0001}/>
         <label className="number-field">Máximo de iterações <input type="number" min="10" max="200000" step="500" value={params.maxIterations} onChange={(e) => set('maxIterations')(Number(e.target.value))}/></label>
@@ -94,7 +100,7 @@ export default function App() {
           <div className="legend"><span><i className="legend-base">B</i> Base</span><span><i className="legend-delivery">1</i> Entregas</span><span><i className="legend-line"/> Melhor rota</span><span><i className="legend-dash"/> Rota atual</span></div>
           <div className="timeline"><div><strong>Reprodução da busca</strong><span>Iteração {fmt(step?.iteration ?? 0)} de {fmt(data.iterations)}</span></div><input aria-label="Iteração" type="range" min="0" max={history.length - 1} value={selected} onChange={(e) => setSelected(Number(e.target.value))}/><div className="timeline-actions"><button onClick={() => move(-1)} aria-label="Passo anterior">‹</button><button className="animate-button" onClick={() => { setAnimate(!animate); if (!animate) setSelected(0); }}><Play size={13} fill="currentColor"/>{animate ? 'Pausar' : 'Reproduzir'}</button><button onClick={() => move(1)} aria-label="Próximo passo">›</button><span>Temperatura <b>{fmt(step?.temperature ?? 0, 3)}</b></span></div></div>
         </section><div className="charts-column"><ChartCard title="Custo da rota" icon={Activity} data={chartData} dataKey="current" color="#f07a46"/><ChartCard title="Melhor custo encontrado" icon={Sparkles} data={chartData} dataKey="best" color="#3d80d6"/><ChartCard title="Temperatura" icon={SlidersHorizontal} data={chartData} dataKey="temperature" color="#8b70d5"/></div></div>
-        <section className="result-card"><div><div className="card-kicker">RESULTADO DA BUSCA</div><h2>Rota sugerida</h2><p>Melhor rota encontrada nesta execução do algoritmo.</p></div><div className="result-details"><div><small>Distância total</small><strong>{fmt(data.bestCost)} <em>unidades</em></strong></div>{data.optimumCost !== null && <div><small>Ótimo exato (comparação)</small><strong>{fmt(data.optimumCost)} <em>unidades</em></strong></div>}</div><div className="visit-order"><span>ORDEM DE VISITA</span><div>{data.bestVisits.map((visit, index) => <span className="visit-chip" key={`${visit}-${index}`}><b>{index + 1}</b>{visit}</span>)}</div></div><details className="path-details"><summary>Caminho completo por cruzamentos <ChevronDown size={15}/></summary><p>{data.bestVertexPath.join('  →  ')}</p></details></section>
+        <section className="result-card"><div><div className="card-kicker">RESULTADO DA BUSCA</div><h2>Rota sugerida</h2><p>Solução inicial: {data.initialSolution === 'random' ? 'aleatória' : 'vizinho mais próximo'}.</p></div><div className="result-details"><div><small>Distância total</small><strong>{fmt(data.bestCost)} <em>unidades</em></strong></div>{data.optimumCost !== null && <div><small>Ótimo exato (comparação)</small><strong>{fmt(data.optimumCost)} <em>unidades</em></strong></div>}</div><div className="visit-order"><span>ORDEM DE VISITA</span><div>{data.bestVisits.map((visit, index) => <span className="visit-chip" key={`${visit}-${index}`}><b>{index + 1}</b>{visit}</span>)}</div></div><details className="path-details"><summary>Caminho completo por cruzamentos <ChevronDown size={15}/></summary><p>{data.bestVertexPath.join('  →  ')}</p></details></section>
       </>}
       <footer>RotaLab <span>·</span> k-TSP resolvido com Simulated Annealing <span>·</span> Unipampa</footer>
     </main>

@@ -5,7 +5,12 @@ import random
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from ktsp.annealing import AnnealingParams, anneal
-from ktsp.baselines import MAX_BRUTE_FORCE_K, brute_force, nearest_neighbor
+from ktsp.baselines import (
+    MAX_BRUTE_FORCE_K,
+    brute_force,
+    nearest_neighbor,
+    random_order,
+)
 from ktsp.distances import build_distance_table
 from ktsp.instance import generate_instance
 from ktsp.solution import Route, route_cost
@@ -26,6 +31,7 @@ def solve(payload: dict) -> dict:
     initial_temperature = float(payload.get("initialTemperature", 100))
     cooling_rate = float(payload.get("coolingRate", 0.995))
     max_iterations = int(payload.get("maxIterations", 5000))
+    initial_solution = payload.get("initialSolution", "nearest_neighbor")
     if not 4 <= size <= 25:
         raise ValueError("O tamanho da grade deve estar entre 4 e 25.")
     if not 1 <= k <= min(40, size * size - 1):
@@ -34,16 +40,21 @@ def solve(payload: dict) -> dict:
         raise ValueError("Confira a temperatura inicial e a taxa de resfriamento.")
     if not 10 <= max_iterations <= 200000:
         raise ValueError("O máximo de iterações deve estar entre 10 e 200.000.")
+    if initial_solution not in ("nearest_neighbor", "random"):
+        raise ValueError("A solução inicial deve ser 'nearest_neighbor' ou 'random'.")
 
     instance = generate_instance(size, size, k, seed)
     table = build_distance_table(instance)
-    initial = nearest_neighbor(table)
+    initial = (
+        nearest_neighbor(table)
+        if initial_solution == "nearest_neighbor"
+        else random_order(table, random.Random(seed))
+    )
     params = AnnealingParams(initial_temperature, cooling_rate, max_iterations)
     steps = list(anneal(table, initial, params, random.Random(seed)))
     optimum = brute_force(table) if k <= MAX_BRUTE_FORCE_K else None
     positions = {
-        node: [column, row]
-        for node, (row, column) in instance.graph.nodes(data="pos")
+        node: [column, row] for node, (row, column) in instance.graph.nodes(data="pos")
     }
 
     # Limita a resposta ao navegador, mantendo início, fim e evolução visível.
@@ -58,11 +69,10 @@ def solve(payload: dict) -> dict:
         "size": size,
         "seed": seed,
         "k": k,
+        "initialSolution": initial_solution,
         "base": positions[instance.base],
         "deliveries": [positions[node] for node in instance.deliveries],
-        "edges": [
-            [positions[u], positions[v]] for u, v in instance.graph.edges
-        ],
+        "edges": [[positions[u], positions[v]] for u, v in instance.graph.edges],
         "positions": positions,
         "steps": [
             {
