@@ -4,10 +4,16 @@ O algoritmo é um gerador: emite um ``Step`` por iteração. A aplicação usa t
 os passos para animar a busca; os experimentos usam só o último. Toda execução
 avalia exatamente ``max_iterations`` vizinhos, para que execuções com parâmetros
 diferentes sejam comparadas com o mesmo orçamento.
+
+Com ``tabu_tenure > 0`` a busca vira um híbrido SA + Tabu: os últimos movimentos
+avaliados ficam proibidos e não gastam orçamento, o que evita reavaliar os mesmos
+vizinhos quando a busca está parada num ótimo local. Com ``tabu_tenure = 0`` o
+algoritmo é o SA puro.
 """
 
 import math
 import random
+from collections import deque
 from collections.abc import Iterator
 from dataclasses import dataclass
 
@@ -23,11 +29,14 @@ class AnnealingParams:
         initial_temperature: Temperatura inicial T0.
         cooling_rate: Fator alfa do resfriamento geométrico (T <- alfa * T).
         max_iterations: Orçamento: quantidade de vizinhos avaliados.
+        tabu_tenure: Tamanho da lista tabu (movimentos recentes proibidos);
+            0 desliga a lista e mantém o SA puro.
     """
 
     initial_temperature: float = 100.0
     cooling_rate: float = 0.995
     max_iterations: int = 5000
+    tabu_tenure: int = 0
 
     def __post_init__(self) -> None:
         """Rejeita parâmetros que tornariam a busca inválida."""
@@ -37,6 +46,8 @@ class AnnealingParams:
             raise ValueError("a taxa de resfriamento deve estar entre 0 e 1")
         if self.max_iterations < 0:
             raise ValueError("o máximo de iterações não pode ser negativo")
+        if self.tabu_tenure < 0:
+            raise ValueError("o tamanho da lista tabu não pode ser negativo")
 
 
 @dataclass(frozen=True)
@@ -64,17 +75,18 @@ class Step:
     accepted: bool
 
 
-def two_opt_neighbor(order: Order, rng: random.Random) -> Order:
-    """Inverte um trecho aleatório da ordem de visita (movimento 2-opt).
+Move = tuple[int, int]
 
-    Args:
-        order: Ordem atual, com pelo menos 2 pontos.
-        rng: Gerador de números aleatórios.
 
-    Returns:
-        Nova ordem com o trecho ``order[i..j]`` invertido.
-    """
-    i, j = sorted(rng.sample(range(len(order)), 2))
+def random_move(size: int, rng: random.Random) -> Move:
+    """Sorteia um movimento 2-opt: as posições ``i < j`` do trecho a inverter."""
+    i, j = sorted(rng.sample(range(size), 2))
+    return i, j
+
+
+def reverse_segment(order: Order, move: Move) -> Order:
+    """Aplica o movimento 2-opt: inverte o trecho ``order[i..j]``."""
+    i, j = move
     return order[:i] + order[i : j + 1][::-1] + order[j + 1 :]
 
 
@@ -106,8 +118,15 @@ def anneal(
     if len(current) < 2:  # com um único ponto só existe uma rota
         return
 
+    # Deixa ao menos um movimento livre, para o sorteio abaixo sempre terminar.
+    moves = len(current) * (len(current) - 1) // 2
+    tabu: deque[Move] = deque(maxlen=min(params.tabu_tenure, moves - 1))
     for iteration in range(1, params.max_iterations + 1):
-        candidate = two_opt_neighbor(current, rng)
+        move = random_move(len(current), rng)
+        while move in tabu:  # movimento proibido: sorteia outro sem avaliá-lo
+            move = random_move(len(current), rng)
+        tabu.append(move)
+        candidate = reverse_segment(current, move)
         delta = route_cost(candidate, table) - current_cost
         worse = delta > 0
         # shortcut: math.exp vem da libm do sistema e pode diferir em 1 ulp entre

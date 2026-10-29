@@ -113,3 +113,30 @@ def test_annealing_spends_the_whole_budget(table, alpha):
     params = AnnealingParams(cooling_rate=alpha, max_iterations=3000)
     steps = list(anneal(table, nearest_neighbor(table), params, random.Random(0)))
     assert steps[-1].iteration == 3000
+
+
+def test_tabu_hybrid_spends_budget_and_keeps_routes_valid(instance, table):
+    params = AnnealingParams(max_iterations=2000, tabu_tenure=10)
+    steps = list(anneal(table, nearest_neighbor(table), params, random.Random(0)))
+    assert steps[-1].iteration == 2000
+    route = Route.from_order(steps[-1].best_order, table)
+    assert sorted(route.visits) == sorted(instance.deliveries)
+    assert all(a.best_cost >= b.best_cost for a, b in pairwise(steps))
+
+
+def test_tabu_tenure_larger_than_neighborhood_still_terminates():
+    table = build_distance_table(generate_instance(3, 3, 3, seed=0))
+    params = AnnealingParams(max_iterations=50, tabu_tenure=100)
+    steps = list(anneal(table, (1, 2, 3), params, random.Random(0)))
+    assert steps[-1].iteration == 50
+
+
+def test_tabu_hybrid_differs_from_plain_sa(table):
+    plain = list(
+        anneal(table, nearest_neighbor(table), AnnealingParams(), random.Random(0))
+    )
+    hybrid_params = AnnealingParams(tabu_tenure=10)
+    hybrid = list(
+        anneal(table, nearest_neighbor(table), hybrid_params, random.Random(0))
+    )
+    assert plain != hybrid
