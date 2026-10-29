@@ -16,9 +16,10 @@ uv run pytest                               # all tests
 uv run pytest tests/test_ktsp.py::test_name # single test
 uv run ruff check . && uv run ruff format . # lint (incl. Google docstrings) + format
 uv run ruff format --check .                # format check only (as in README)
+uv run ktsp --help                          # CLI: solve one instance (see src/ktsp/cli.py)
 uv run python app/api.py                    # API for the React app
 cd web && npm install && npm run dev         # React app (requires Node.js)
-uv run python experiments/run.py            # experiments → experiments/results/
+uv run python experiments/run.py --help     # experiments (flags) → experiments/results/
 ```
 
 ## Architecture
@@ -30,7 +31,15 @@ uv run python experiments/run.py            # experiments → experiments/result
 - `solution.py` — `route_cost(order, table)` (hot path used by SA) and `Route.from_order`, which expands legs into the full vertex path.
 - `annealing.py` — `anneal()` is a **generator yielding one `Step` per iteration** (step 0 = initial solution). The app keeps all steps for animation/replay; experiments take only the last. Neighbor = 2-opt reversal, geometric cooling.
 - `baselines.py` — nearest neighbor (also the SA starting solution) and brute-force optimum (k ≤ `MAX_BRUTE_FORCE_K`, else `ValueError`).
-- `experiments/run.py` — the experiment grid (k values, cooling rates α, seeds, grid size, iterations) is set by module-level constants at the top; it writes CSVs and PNG charts to `experiments/results/`.
+- `pipeline.py` — `solve(size, k, seed, sa_seed, params)`: the single generate+anneal path shared by the CLI (`cli.py`, entry point `ktsp`) and `app/api.py` (`saSeed` in the payload; UI defaults in `web/src/App.jsx` mirror `DEFAULT_*` here and `AnnealingParams`).
+- `experiments/run.py` — the experiment grid (k values, α, city seeds, SA seed, grid size, iterations) comes from argparse flags with fixed defaults; it writes `params.json`, CSVs and PNG charts to `--output` (default `experiments/results/`).
+
+## Determinism (required: same results on any machine)
+
+- All randomness comes from two explicit seeds: `seed` (city) and `sa_seed` (SA), each passed to its own `random.Random`. Never use the global `random`, unseeded RNGs, time, or set/dict iteration order that depends on hashing of non-int keys.
+- Python is pinned to 3.12 (`.python-version`, `requires-python`): `random`'s `randint`/`sample`/`shuffle` sequences may change across Python versions. `uv.lock` pins networkx.
+- `tests/test_ktsp.py::test_default_run_matches_reference_values` holds golden values for the default run. If an intentional algorithm change breaks it, update the values and regenerate `experiments/results/`; otherwise treat a failure as a reproducibility bug.
+- `seconds` in the experiment CSVs is the only machine-dependent output.
 
 ## The problem (from `docs/Enunciado.md`)
 

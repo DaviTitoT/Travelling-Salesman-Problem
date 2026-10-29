@@ -8,7 +8,9 @@ Este README apresenta, em sequência:
 2. por que ele é difícil;
 3. como ele foi modelado;
 4. como o algoritmo o resolve;
-5. como usar a aplicação que mostra o algoritmo funcionando.
+5. como usar a aplicação que mostra o algoritmo funcionando;
+6. como rodar pelo terminal e por que os resultados são reproduzíveis;
+7. como rodar os experimentos em lote.
 
 ---
 
@@ -141,7 +143,7 @@ encaminha as chamadas `/api` para a API Python em `http://127.0.0.1:8000`.
 
 ### Usando, passo a passo
 
-1. **Monte a cidade** na barra lateral. Escolha a **semente**, o **tamanho da grade** e o **número de entregas k**.
+1. **Monte a cidade** na barra lateral. Escolha a **semente da cidade**, a **semente do SA**, o **tamanho da grade** e o **número de entregas k**.
 2. **Ajuste o algoritmo:** temperatura inicial **T0**, resfriamento **α** e **máximo de iterações**.
 3. Clique em **Executar**. Com *Animar a execução* marcado, o mapa mostra a rota mudando ao longo da busca.
 4. **Leia o mapa:**
@@ -164,24 +166,70 @@ encaminha as chamadas `/api` para a API Python em `http://127.0.0.1:8000`.
 - **k pequeno (≤ 8):** confira se o SA chega ao ótimo da força bruta.
 - **k grande (30 ou mais):** veja a diferença entre o SA e o vizinho mais próximo aumentar.
 
-## 6. Experimentos em lote
+## 6. Linha de comando e reprodutibilidade
+
+### Resolver uma instância pelo terminal
+
+```bash
+uv run ktsp                                   # todos os parâmetros com o valor padrão
+uv run ktsp --size 15 --k 8 --seed 7 --sa-seed 3 --t0 50 --alpha 0.999
+uv run ktsp --help                            # lista os parâmetros e os padrões
+```
+
+| Parâmetro | Significado | Padrão |
+| --- | --- | --- |
+| `--size` | Lado da grade (a cidade tem size × size esquinas) | 12 |
+| `--k` | Número de pontos de entrega | 10 |
+| `--seed` | Semente da cidade: ruas, distâncias, base e entregas | 42 |
+| `--sa-seed` | Semente das escolhas aleatórias do Simulated Annealing | 0 |
+| `--t0` | Temperatura inicial | 100 |
+| `--alpha` | Taxa de resfriamento | 0,995 |
+| `--iterations` | Máximo de iterações | 5000 |
+| `--min-temperature` | Temperatura de parada | 0,001 |
+
+A saída mostra a distância do vizinho mais próximo, o ótimo (para k ≤ 8), a distância do SA, a ordem de visita e o caminho completo. A primeira linha é o comando completo, com todos os parâmetros, para repetir aquela execução.
+
+### Por que os resultados são sempre os mesmos
+
+Nenhum resultado depende de sorte ou da máquina. A mesma combinação de parâmetros produz sempre a mesma cidade, a mesma rota e a mesma distância:
+
+- **Duas sementes explícitas.** A semente da cidade e a semente do SA são separadas. Assim dá para testar o SA com várias sementes na mesma cidade. As duas têm valor padrão fixo, e o programa não usa nenhuma outra fonte de aleatoriedade (relógio, sistema operacional, etc.).
+- **Mesmo caminho em todas as interfaces.** A CLI e a API da aplicação web chamam a mesma função (`src/ktsp/pipeline.py`). Por isso os mesmos parâmetros dão o mesmo resultado no terminal e no navegador.
+- **Versões fixas.** O gerador de números aleatórios do Python só garante a mesma sequência dentro da mesma versão do Python. Por isso o projeto exige o Python 3.12 (`.python-version` e `pyproject.toml`), e o `uv.lock` fixa a versão de cada biblioteca.
+- **Teste de referência.** Um teste automatizado confere a cidade e a rota da execução padrão contra valores gravados. Se `uv run pytest` passa numa máquina, ela reproduz os mesmos resultados.
+
+## 7. Experimentos em lote
 
 O script abaixo roda o algoritmo em várias cidades, combinando valores de k, de α e de sementes:
 
 ```bash
-uv run python experiments/run.py
+uv run python experiments/run.py                       # grade padrão
+uv run python experiments/run.py --k 10 20 --alpha 0.99 0.999 --seeds 0 1 2
+uv run python experiments/run.py --help                # lista os parâmetros
 ```
 
-Ele grava os resultados em `experiments/results/`:
+| Parâmetro | Significado | Padrão |
+| --- | --- | --- |
+| `--grid-size` | Lado da grade das cidades | 15 |
+| `--k` | Valores de k testados | 6 8 15 30 |
+| `--alpha` | Taxas de resfriamento testadas | 0,99 0,995 0,999 |
+| `--seeds` | Sementes das cidades | 0 a 9 |
+| `--sa-seed` | Semente do SA, a mesma em todas as execuções | 0 |
+| `--t0` | Temperatura inicial | 100 |
+| `--iterations` | Máximo de iterações | 20000 |
+| `--output` | Pasta de saída | `experiments/results/` |
 
+Ele grava na pasta de saída:
+
+- `params.json`: os parâmetros usados, para repetir o experimento;
 - `results.csv`: uma linha por execução;
 - `summary.csv`: médias por k e α;
 - `improvement_over_nn.png`: melhoria sobre o vizinho mais próximo;
 - `gap_to_optimum.png`: distância até o ótimo, para k ≤ 8.
 
-Os valores testados ficam em constantes no início de `experiments/run.py`.
+Todas as colunas se repetem em qualquer máquina, exceto `seconds`, que mede o tempo de execução.
 
-## 7. Organização do código
+## 8. Organização do código
 
 O fluxo dos dados segue a modelagem:
 
@@ -199,6 +247,8 @@ instance.py  →  distances.py  →  baselines.py  →  annealing.py  →  solut
 | `src/ktsp/solution.py` | Custo de uma ordem e expansão no caminho completo |
 | `src/ktsp/annealing.py` | Simulated Annealing (vizinho 2-opt e resfriamento geométrico) |
 | `src/ktsp/baselines.py` | Vizinho mais próximo e força bruta |
+| `src/ktsp/pipeline.py` | Execução completa (cidade + SA) a partir das sementes, usada pela CLI e pela API |
+| `src/ktsp/cli.py` | Linha de comando `ktsp` |
 | `app/api.py` | API local que executa o solver Python e entrega os dados à interface |
 | `web/` | Interface React com Vite, mapa, reprodução e gráficos |
 | `experiments/run.py` | Experimentos em lote |
