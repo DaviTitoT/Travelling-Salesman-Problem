@@ -12,9 +12,12 @@ from dataclasses import dataclass
 from ktsp.annealing import AnnealingParams, Step, anneal
 from ktsp.baselines import nearest_neighbor
 from ktsp.distances import DistanceTable, build_distance_table
-from ktsp.instance import Instance, generate_instance
+from ktsp.instance import Instance, generate_instance, sample_instance
 from ktsp.solution import Order
+from ktsp.street_map import load_street_map
 
+CITIES = ("grid", "ibirapuita")  # grade sintética ou o bairro real
+DEFAULT_CITY = "grid"
 DEFAULT_SIZE = 12
 DEFAULT_K = 10
 DEFAULT_SEED = 42
@@ -38,26 +41,52 @@ class Run:
     steps: list[Step]
 
 
+def build_instance(city: str, size: int, k: int, seed: int) -> Instance:
+    """Monta a instância na cidade pedida.
+
+    Args:
+        city: ``"grid"`` (grade sintética ``size`` x ``size``) ou
+            ``"ibirapuita"`` (bairro real, que ignora ``size``).
+        size: Lado da grade.
+        k: Quantidade de pontos de entrega.
+        seed: Semente da cidade. Na grade, define ruas, pesos, base e entregas;
+            no bairro real, só a base e as entregas.
+
+    Returns:
+        A instância.
+
+    Raises:
+        ValueError: Se a cidade não existir ou k não couber nela.
+    """
+    if city == "grid":
+        return generate_instance(size, size, k, seed)
+    if city == "ibirapuita":
+        return sample_instance(load_street_map().graph, k, random.Random(seed))
+    raise ValueError(f"Cidade desconhecida: {city!r}. Use uma de {CITIES}.")
+
+
 def solve(
     size: int = DEFAULT_SIZE,
     k: int = DEFAULT_K,
     seed: int = DEFAULT_SEED,
     sa_seed: int = DEFAULT_SA_SEED,
     params: AnnealingParams = AnnealingParams(),  # noqa: B008 (imutável)
+    city: str = DEFAULT_CITY,
 ) -> Run:
-    """Gera a cidade ``size`` x ``size`` e roda o SA a partir do vizinho mais próximo.
+    """Monta a cidade e roda o SA a partir do vizinho mais próximo.
 
     Args:
-        size: Lado da grade.
+        size: Lado da grade (só na grade sintética).
         k: Quantidade de pontos de entrega.
-        seed: Semente da cidade (ruas, pesos, base e entregas).
+        seed: Semente da cidade (ver ``build_instance``).
         sa_seed: Semente das escolhas aleatórias do SA.
         params: Parâmetros do SA.
+        city: ``"grid"`` ou ``"ibirapuita"``.
 
     Returns:
         A execução completa, com o histórico de passos.
     """
-    instance = generate_instance(size, size, k, seed)
+    instance = build_instance(city, size, k, seed)
     table = build_distance_table(instance)
     initial = nearest_neighbor(table)
     steps = list(anneal(table, initial, params, random.Random(sa_seed)))
