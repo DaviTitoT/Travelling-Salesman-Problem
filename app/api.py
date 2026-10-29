@@ -87,6 +87,10 @@ def solve(payload: dict) -> dict:
         "currentCost": current.cost,
         "optimumCost": route_cost(optimum, table) if optimum is not None else None,
         "iterations": steps[-1].iteration,
+        # Primeira iteração em que a melhor rota final apareceu.
+        "foundAt": next(
+            step.iteration for step in steps if step.best_cost == best.cost
+        ),
     }
     return result
 
