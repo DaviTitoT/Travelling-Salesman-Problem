@@ -8,6 +8,7 @@ from ktsp.annealing import AnnealingParams, anneal
 from ktsp.baselines import brute_force, nearest_neighbor
 from ktsp.distances import build_distance_table
 from ktsp.instance import generate_instance
+from ktsp.pipeline import solve
 from ktsp.solution import Route
 
 
@@ -62,6 +63,32 @@ def test_annealing_with_single_delivery():
     assert len(steps) == 1
 
 
+def test_same_parameters_give_identical_runs():
+    a, b = solve(), solve()
+    assert a.steps == b.steps
+    assert sorted(a.instance.graph.edges(data="weight")) == sorted(
+        b.instance.graph.edges(data="weight")
+    )
+
+
+def test_default_run_matches_reference_values():
+    # Valores gravados em Python 3.12; se mudarem, os resultados deixaram de ser
+    # reproduzíveis entre máquinas (versão do Python, networkx ou do algoritmo).
+    run = solve()
+    last = run.steps[-1]
+    assert run.instance.base == 43
+    assert run.instance.deliveries == (21, 72, 131, 85, 23, 60, 79, 57, 50, 37)
+    assert len(run.instance.graph.edges) == 189
+    assert (last.iteration, last.best_cost) == (2297, 273)
+    assert last.best_order == (1, 5, 8, 3, 4, 2, 6, 10, 9, 7)
+
+
+def test_sa_seed_is_independent_from_city_seed():
+    a, b = solve(sa_seed=0), solve(sa_seed=1)
+    assert a.instance.deliveries == b.instance.deliveries
+    assert a.steps != b.steps
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [{"initial_temperature": 0}, {"cooling_rate": 1}, {"max_iterations": -1}],
@@ -69,3 +96,4 @@ def test_annealing_with_single_delivery():
 def test_invalid_annealing_params_raise(kwargs):
     with pytest.raises(ValueError):
         AnnealingParams(**kwargs)
+
