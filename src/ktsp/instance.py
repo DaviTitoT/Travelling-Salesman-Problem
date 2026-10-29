@@ -22,6 +22,27 @@ class Instance:
     deliveries: tuple[int, ...]
 
 
+def sample_instance(graph: nx.Graph, k: int, rng: random.Random) -> Instance:
+    """Sorteia a base e os k pontos de entrega entre os vértices de um grafo.
+
+    Args:
+        graph: Grafo conexo da cidade.
+        k: Quantidade de pontos de entrega.
+        rng: Gerador aleatório; a mesma semente sorteia os mesmos pontos.
+
+    Returns:
+        A instância, com base e pontos de entrega distintos.
+
+    Raises:
+        ValueError: Se o grafo não tiver vértices suficientes para base + k pontos.
+    """
+    n = graph.number_of_nodes()
+    if k < 1 or k + 1 > n:
+        raise ValueError(f"k deve estar entre 1 e {n - 1}, recebido {k}")
+    base, *deliveries = rng.sample(sorted(graph.nodes), k + 1)
+    return Instance(graph=graph, base=base, deliveries=tuple(deliveries))
+
+
 def generate_instance(
     rows: int,
     cols: int,
@@ -34,7 +55,7 @@ def generate_instance(
 
     Parte de uma grade ``rows`` x ``cols``, sorteia pesos inteiros em
     ``[1, max_weight]`` e remove arestas ao acaso, desde que o grafo continue
-    conexo. A base e os k pontos de entrega são vértices distintos sorteados.
+    conexo. A base e os k pontos de entrega são sorteados por ``sample_instance``.
 
     Args:
         rows: Número de linhas da grade.
@@ -50,12 +71,12 @@ def generate_instance(
     Raises:
         ValueError: Se a grade não tiver vértices suficientes para base + k pontos.
     """
-    if k < 1 or k + 1 > rows * cols:
-        raise ValueError(f"k deve estar entre 1 e {rows * cols - 1}, recebido {k}")
     rng = random.Random(seed)
 
     grid = nx.grid_2d_graph(rows, cols)
     graph = nx.convert_node_labels_to_integers(grid, label_attribute="pos")
+    for v, (row, col) in graph.nodes(data="pos"):
+        graph.nodes[v]["pos"] = (col, -row)  # linha 0 no topo do desenho
     for u, v in graph.edges:
         graph.edges[u, v]["weight"] = rng.randint(1, max_weight)
 
@@ -67,5 +88,4 @@ def generate_instance(
         if not nx.has_path(graph, u, v):  # a rua era uma ponte: recoloca
             graph.add_edge(u, v, weight=weight)
 
-    base, *deliveries = rng.sample(sorted(graph.nodes), k + 1)
-    return Instance(graph=graph, base=base, deliveries=tuple(deliveries))
+    return sample_instance(graph, k, rng)

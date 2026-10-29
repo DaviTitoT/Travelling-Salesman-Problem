@@ -47,9 +47,8 @@ def solve(payload: dict) -> dict:
     run = pipeline.solve(size, k, seed, sa_seed, params)
     instance, table, initial, steps = run.instance, run.table, run.initial, run.steps
     optimum = brute_force(table) if k <= MAX_BRUTE_FORCE_K else None
-    positions = {
-        node: [column, row] for node, (row, column) in instance.graph.nodes(data="pos")
-    }
+    # pos é (x, y) com y para cima; no SVG, y cresce para baixo
+    positions = {node: [x, -y] for node, (x, y) in instance.graph.nodes(data="pos")}
 
     # Limita a resposta ao navegador, mantendo início, fim e evolução visível.
     stride = max(1, len(steps) // 700)
