@@ -2,6 +2,7 @@ import importlib.util
 import json
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 # experiments/ não é um pacote: carrega o script pelo caminho.
@@ -56,3 +57,18 @@ def test_params_file_with_unknown_key_is_rejected(tmp_path):
     path.write_text(json.dumps({"params": {"sa_seed": 0}}))
     with pytest.raises(SystemExit):
         run.parse_args(["--params", str(path)])
+
+
+def test_compare_results_ignores_seconds(tmp_path):
+    rows = {"k": [5, 6], "sa_cost": [10.0, 12.0], "opt_cost": [None, 12.0]}
+    pd.DataFrame({**rows, "seconds": [0.1, 0.2]}).to_csv(tmp_path / "a.csv")
+    pd.DataFrame({**rows, "seconds": [9.0, 9.0]}).to_csv(tmp_path / "b.csv")
+    pd.DataFrame({**rows, "sa_cost": [10.0, 13.0], "seconds": [0, 0]}).to_csv(
+        tmp_path / "c.csv"
+    )
+    assert run.compare_results(tmp_path / "a.csv", tmp_path / "b.csv").startswith(
+        "idênticos"
+    )
+    assert run.compare_results(tmp_path / "a.csv", tmp_path / "c.csv").startswith(
+        "1 de 2"
+    )

@@ -5,7 +5,7 @@ sementes em cada uma e mede o desvio em relação à melhor rota conhecida: o ó
 exato para k pequeno ou a melhor rota achada nas execuções.
 
 Execução: ``uv run python experiments/run.py`` (``--help`` lista os parâmetros).
-Para repetir uma execução anterior:
+Para repetir uma execução anterior e comparar os resultados:
 ``uv run python experiments/run.py --params <pasta da execução>/params.json``.
 Todos os parâmetros têm padrão fixo e são gravados em ``params.json`` junto dos
 resultados, com o commit e as versões do ambiente; só a coluna ``seconds``
@@ -84,7 +84,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--params",
         type=Path,
         help="params.json de uma execução anterior: repete os parâmetros dela "
-        "(flags explícitas têm prioridade) e confere o ambiente",
+        "(flags explícitas têm prioridade), confere o ambiente e compara os "
+        "resultados ao final",
     )
     parser.add_argument(
         "--allow-env-mismatch",
@@ -154,6 +155,18 @@ def check_environment(saved: dict | None, current: dict) -> tuple[list[str], lis
     if current["uncommitted_changes"]:
         warnings.append("este código tem alterações não commitadas")
     return problems, warnings
+
+
+def compare_results(original: Path, new: Path) -> str:
+    """Compara dois ``results.csv`` ignorando ``seconds``, a única coluna que muda."""
+    old = pd.read_csv(original).drop(columns="seconds")
+    cur = pd.read_csv(new).drop(columns="seconds")
+    if list(old.columns) != list(cur.columns) or len(old) != len(cur):
+        return "não comparáveis: colunas ou número de execuções diferentes"
+    differs = (old.ne(cur) & ~(old.isna() & cur.isna())).any(axis=1).sum()
+    if differs == 0:
+        return f"idênticos ({len(old)} execuções, sem contar o tempo)"
+    return f"{differs} de {len(old)} execuções com resultados diferentes"
 
 
 def run_experiments(args: argparse.Namespace) -> pd.DataFrame:
@@ -299,6 +312,14 @@ def main() -> None:
         results_dir / "hit_rate.png",
     )
     print(f"Resultados gravados em {results_dir}")
+    if original is not None and (args.params.parent / "results.csv").exists():
+        verdict = compare_results(
+            args.params.parent / "results.csv", results_dir / "results.csv"
+        )
+        (results_dir / "comparison.txt").write_text(
+            f"Comparação com {args.params.parent.name}: {verdict}\n"
+        )
+        print(f"Comparação com a execução original: {verdict}")
 
 
 if __name__ == "__main__":
