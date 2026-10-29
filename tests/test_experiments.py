@@ -19,6 +19,30 @@ ENV = {
 }
 
 
+def test_same_environment_has_no_problems():
+    assert run.check_environment(ENV, ENV) == ([], [])
+
+
+def test_python_patch_version_is_compatible():
+    problems, _ = run.check_environment(ENV, {**ENV, "python": "3.12.1"})
+    assert problems == []
+
+
+def test_python_minor_or_package_version_is_incompatible():
+    current = {
+        **ENV,
+        "python": "3.13.0",
+        "packages": {**ENV["packages"], "pandas": "2.2"},
+    }
+    problems, _ = run.check_environment(ENV, current)
+    assert len(problems) == 2
+
+
+def test_different_commit_only_warns():
+    problems, warnings = run.check_environment(ENV, {**ENV, "commit": "fff0000"})
+    assert problems == [] and len(warnings) == 1
+
+
 def test_params_file_sets_defaults_and_flags_override(tmp_path):
     record = {"params": {"k": [7], "iterations": 123}, "environment": ENV}
     path = tmp_path / "params.json"

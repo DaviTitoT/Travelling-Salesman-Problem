@@ -18,6 +18,7 @@ import math
 import platform
 import random
 import subprocess
+import sys
 import time
 from datetime import UTC, datetime
 from importlib.metadata import version
@@ -83,13 +84,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--params",
         type=Path,
         help="params.json de uma execução anterior: repete os parâmetros dela "
-        "(flags explícitas têm prioridade)",
+        "(flags explícitas têm prioridade) e confere o ambiente",
+    )
+    parser.add_argument(
+        "--allow-env-mismatch",
+        action="store_true",
+        help="roda mesmo com Python ou bibliotecas em versões diferentes das do "
+        "params.json",
     )
     return parser
 
 
 # Opções que controlam o script, não o experimento: não vão para params.json.
-SCRIPT_OPTIONS = {"output", "params"}
+SCRIPT_OPTIONS = {"output", "params", "allow_env_mismatch"}
 
 
 def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, dict | None]:
@@ -112,6 +119,41 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, dict 
         parser.error(f"parâmetros desconhecidos em {args.params}: {sorted(unknown)}")
     parser.set_defaults(**saved)
     return parser.parse_args(argv), record
+
+
+def check_environment(saved: dict | None, current: dict) -> tuple[list[str], list[str]]:
+    """Compara o ambiente gravado com o atual.
+
+    Args:
+        saved: Campo ``environment`` do ``params.json`` original.
+        current: Ambiente atual, de ``environment()``.
+
+    Returns:
+        Incompatibilidades (podem mudar os resultados) e avisos.
+    """
+    if saved is None:
+        return [], ["o params.json não registra o ambiente; nada foi conferido"]
+    problems, warnings = [], []
+    # O módulo random só garante a mesma sequência dentro da mesma versão maior.menor.
+    if saved["python"].rsplit(".", 1)[0] != current["python"].rsplit(".", 1)[0]:
+        problems.append(
+            f"Python {saved['python']} no original, {current['python']} aqui"
+        )
+    for name, wanted in saved["packages"].items():
+        found = current["packages"].get(name)
+        if found != wanted:
+            problems.append(f"{name} {wanted} no original, {found} aqui")
+    if saved["commit"] != current["commit"]:
+        warnings.append(
+            f"commit diferente ({str(saved['commit'])[:7]} no original, "
+            f"{str(current['commit'])[:7]} aqui): os resultados mudam se o "
+            "algoritmo mudou"
+        )
+    if saved["uncommitted_changes"]:
+        warnings.append("o original tinha alterações não commitadas")
+    if current["uncommitted_changes"]:
+        warnings.append("este código tem alterações não commitadas")
+    return problems, warnings
 
 
 def run_experiments(args: argparse.Namespace) -> pd.DataFrame:
@@ -199,6 +241,16 @@ def main() -> None:
     """Roda os experimentos e salva parâmetros, CSV, resumo e gráficos."""
     args, original = parse_args()
     env = environment()
+    if original is not None:
+        problems, warnings = check_environment(original.get("environment"), env)
+        for warning in warnings:
+            print(f"Aviso: {warning}", file=sys.stderr)
+        if problems and not args.allow_env_mismatch:
+            sys.exit(
+                "Ambiente incompatível com o da execução original:\n  - "
+                + "\n  - ".join(problems)
+                + "\nInstale as mesmas versões (uv sync) ou use --allow-env-mismatch."
+            )
     # Uma pasta por execução, <timestamp UTC>-<commit>[-dirty], para nunca sobrescrever
     # resultados anteriores e saber de qual versão do código cada um veio.
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
