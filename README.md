@@ -279,6 +279,20 @@ A **referência** é o ótimo exato quando k ≤ 8 e, para k maior, a melhor rot
 
 Todas as colunas se repetem em qualquer máquina, exceto `seconds`, que mede o tempo de execução.
 
+### Reproduzir um experimento e comparar os resultados
+
+Para repetir uma execução, por exemplo a de um colega, passe o `params.json` da pasta dela:
+
+```bash
+uv run python experiments/run.py --params experiments/results/20261029T055508Z-70fc5c5/params.json
+```
+
+1. **Parâmetros:** os valores do arquivo viram o padrão. Uma flag passada explicitamente tem prioridade, por exemplo `--iterations 1000`, para variar um parâmetro e manter o resto.
+2. **Checagem do ambiente, antes de rodar:**
+   - versão do Python (maior.menor) ou de uma biblioteca diferente da registrada: o script **para** e lista as diferenças, porque elas podem mudar os resultados. Rode `uv sync` para instalar as versões do projeto, ou use `--allow-env-mismatch` para rodar mesmo assim;
+   - commit diferente ou alterações não commitadas, no original ou aqui: o script só **avisa**, porque comparar versões diferentes do código é um uso legítimo.
+3. **Comparação, ao terminar:** se a pasta original tiver o `results.csv`, o script compara os dois, ignorando a coluna `seconds`, e diz se são idênticos ou quantas execuções mudaram. O veredito fica em `comparison.txt`, e o `params.json` novo registra em `reproduces` qual execução foi repetida.
+
 ## 8. Organização do código
 
 O fluxo dos dados segue a modelagem:
