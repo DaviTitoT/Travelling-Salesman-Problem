@@ -165,10 +165,13 @@ def main() -> None:
     """Roda os experimentos e salva parâmetros, CSV, resumo e gráficos."""
     args = build_parser().parse_args()
     env = environment()
-    # Uma pasta por execução, <timestamp UTC>-<commit>, para nunca sobrescrever
+    # Uma pasta por execução, <timestamp UTC>-<commit>[-dirty], para nunca sobrescrever
     # resultados anteriores e saber de qual versão do código cada um veio.
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    results_dir = args.output / f"{timestamp}-{(env['commit'] or 'sem-commit')[:7]}"
+    name = f"{timestamp}-{(env['commit'] or 'sem-commit')[:7]}"
+    if env["uncommitted_changes"]:
+        name += "-dirty"  # código diferente do commit: o resultado não é reproduzível
+    results_dir = args.output / name
     results_dir.mkdir(parents=True)
     params = {k: v for k, v in vars(args).items() if k != "output"}
     record = {"params": params, "environment": env}
