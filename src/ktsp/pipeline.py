@@ -72,6 +72,7 @@ def solve(
     sa_seed: int = DEFAULT_SA_SEED,
     params: AnnealingParams = AnnealingParams(),  # noqa: B008 (imutável)
     city: str = DEFAULT_CITY,
+    base: int | None = None,
 ) -> Run:
     """Monta a cidade e roda o SA a partir do vizinho mais próximo.
 
@@ -82,11 +83,42 @@ def solve(
         sa_seed: Semente das escolhas aleatórias do SA.
         params: Parâmetros do SA.
         city: ``"grid"`` ou ``"ibirapuita"``.
+        base: Vértice que será usado como base; por padrão, mantém a base gerada.
 
     Returns:
         A execução completa, com o histórico de passos.
     """
     instance = build_instance(city, size, k, seed)
+    if base is not None:
+        if base not in instance.graph:
+            if city == "grid":
+                raise ValueError(
+                    f"A base {base} não existe na grade de tamanho {size}."
+                )
+            raise ValueError(f"A base {base} não existe na cidade {city!r}.")
+        deliveries = tuple(
+            instance.base if delivery == base else delivery
+            for delivery in instance.deliveries
+        )
+        instance = Instance(graph=instance.graph, base=base, deliveries=deliveries)
+    return solve_instance(instance, sa_seed, params)
+
+
+def solve_instance(
+    instance: Instance,
+    sa_seed: int = DEFAULT_SA_SEED,
+    params: AnnealingParams = AnnealingParams(),  # noqa: B008 (imutável)
+) -> Run:
+    """Executa o SA em uma instância já definida.
+
+    Args:
+        instance: Cidade, base e entregas da execução.
+        sa_seed: Semente das escolhas aleatórias do SA.
+        params: Parâmetros do SA.
+
+    Returns:
+        A execução completa, com o histórico de passos.
+    """
     table = build_distance_table(instance)
     initial = nearest_neighbor(table)
     steps = list(anneal(table, initial, params, random.Random(sa_seed)))

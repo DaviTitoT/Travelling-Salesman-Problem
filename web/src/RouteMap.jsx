@@ -39,14 +39,14 @@ function FitBounds({ bounds }) {
 }
 
 /** Ruas, limite do bairro e vértices: não mudam durante a animação. */
-const StreetLayer = memo(function StreetLayer({ data }) {
+const StreetLayer = memo(function StreetLayer({ data, onSelectBase }) {
   const streets = data.edges.map(([u, v]) => [data.positions[u], data.positions[v]]);
   return <>
     <Polyline positions={streets} pathOptions={streetStyle} />
     {data.boundary.length > 0 && <Polyline positions={data.boundary} pathOptions={boundaryStyle} />}
     {data.positions.map((position, vertex) => (
-      <CircleMarker key={vertex} center={position} radius={3} pathOptions={vertexStyle}>
-        <Tooltip>Vértice {vertex}</Tooltip>
+      <CircleMarker key={vertex} center={position} radius={5} pathOptions={vertexStyle} eventHandlers={{ click: () => onSelectBase?.(vertex) }}>
+        <Tooltip>Vértice {vertex}{onSelectBase ? ' · clique para escolher a base' : ''}</Tooltip>
       </CircleMarker>
     ))}
   </>;
@@ -57,7 +57,7 @@ const StreetLayer = memo(function StreetLayer({ data }) {
  * O bairro real usa os tiles do OpenStreetMap; a grade sintética, que não tem geografia,
  * é desenhada num plano (CRS.Simple).
  */
-export default function RouteMap({ data, step }) {
+export default function RouteMap({ data, step, selectedBase, onSelectBase }) {
   const bounds = useMemo(() => L.latLngBounds(data.positions), [data.positions]);
   const line = (path) => path.map((vertex) => data.positions[vertex]);
   const visits = step.bestOrder.map((index) => data.deliveries[index - 1]);
@@ -80,17 +80,22 @@ export default function RouteMap({ data, step }) {
           attribution={`<a href="https://www.openstreetmap.org/copyright">${data.attribution}</a>`}
         />
       )}
-      <StreetLayer data={data} />
+      <StreetLayer data={data} onSelectBase={onSelectBase} />
       <Polyline positions={line(step.bestPath)} pathOptions={bestStyle} />
       <Polyline positions={line(step.currentPath)} pathOptions={currentStyle} />
       {visits.map((vertex, index) => (
-        <Marker key={vertex} position={data.positions[vertex]} icon={stopIcon(String(index + 1), false)}>
+        <Marker key={vertex} position={data.positions[vertex]} icon={stopIcon(String(index + 1), false)} eventHandlers={{ click: () => onSelectBase?.(vertex) }}>
           <Tooltip direction="top" offset={[0, -12]}>{index + 1}ª entrega · vértice {vertex}</Tooltip>
         </Marker>
       ))}
-      <Marker position={data.positions[data.base]} icon={stopIcon('B', true)} zIndexOffset={1000}>
-        <Tooltip direction="top" offset={[0, -15]}>Base · vértice {data.base}</Tooltip>
+      <Marker position={data.positions[data.displayBase ?? data.base]} icon={stopIcon('B', true)} zIndexOffset={1000} eventHandlers={{ click: () => onSelectBase?.(data.displayBase ?? data.base) }}>
+        <Tooltip direction="top" offset={[0, -15]}>Base exibida · vértice {data.displayBase ?? data.base}</Tooltip>
       </Marker>
+      {selectedBase !== null && selectedBase !== undefined && data.positions[selectedBase] && selectedBase !== (data.displayBase ?? data.base) && (
+        <Marker position={data.positions[selectedBase]} icon={L.divIcon({ className: 'stop stop-selected', html: 'E', iconSize: [30, 30] })} zIndexOffset={1100}>
+          <Tooltip>Base escolhida · vértice {selectedBase}</Tooltip>
+        </Marker>
+      )}
     </MapContainer>
   );
 }
