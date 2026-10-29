@@ -31,15 +31,15 @@ Esse problema é uma variação do clássico **Problema do Caixeiro Viajante** (
 
 ## 2. Por que é difícil?
 
-O TSP é **NP-difícil**: não se conhece algoritmo que encontre a melhor rota em tempo polinomial. A forma direta de resolvê-lo é testar todas as ordens possíveis, e o número de ordens cresce como k! (fatorial):
+O TSP é **NP-difícil**: não se conhece algoritmo que encontre a melhor rota em tempo polinomial. A forma direta de resolvê-lo é testar todas as ordens possíveis, e o número de ordens cresce como k! (fatorial). Cada rota aparece em duas ordens, uma para cada sentido (as distâncias valem nos dois sentidos), então existem k!/2 rotas diferentes:
 
-| Pontos (k) | Ordens possíveis (k!) |
-| ---: | ---: |
-| 5 | 120 |
-| 8 | 40 320 |
-| 10 | 3 628 800 |
-| 15 | ≈ 1,3 × 10¹² |
-| 30 | ≈ 2,7 × 10³² |
+| Pontos (k) | Ordens possíveis (k!) | Rotas diferentes (k!/2) |
+| ---: | ---: | ---: |
+| 5 | 120 | 60 |
+| 8 | 40 320 | 20 160 |
+| 10 | 3 628 800 | 1 814 400 |
+| 15 | ≈ 1,3 × 10¹² | ≈ 6,5 × 10¹¹ |
+| 30 | ≈ 2,7 × 10³² | ≈ 1,3 × 10³² |
 
 Com 30 entregas, testar todas as ordens é inviável. Por isso usamos uma **metaheurística**: um método que não garante o ótimo, mas encontra soluções muito boas em pouco tempo.
 
@@ -53,6 +53,29 @@ Com 30 entregas, testar todas as ordens é inviável. Por isso usamos uma **meta
 | **Objetivo** | Minimizar a distância total percorrida |
 | **Restrições** | Cada ponto de W aparece exatamente uma vez; a rota começa e termina na base; só são usadas ruas que existem no grafo |
 | **Saída** | A ordem de visita, o caminho completo vértice a vértice e a distância total |
+
+### Formulação matemática
+
+Sejam G = (V, E) o grafo da cidade, com distância c_e em cada rua e, b a base e W o vetor com os k pontos de entrega. Os locais que importam formam o conjunto P = {b} ∪ W, com k + 1 elementos.
+
+**Dados.** Para cada par de locais i, j em P, d_ij é a distância do **menor caminho** de i até j em G. É por meio de d_ij que o modelo trata o grafo não completo: dois pontos sem rua direta entre si continuam ligados, pelo caminho mais curto, que pode passar por quaisquer outras esquinas.
+
+**Variáveis de decisão.** Para cada par de locais distintos i, j em P, x_ij vale 1 se a rota vai de i direto para j (pelo menor caminho) e 0 caso contrário. São (k + 1) · k variáveis.
+
+**Função objetivo.** Minimizar a distância total:
+
+  f(x) = Σ d_ij · x_ij, somada sobre todos os pares i ≠ j de P.
+
+**Restrições.**
+
+1. **Uma saída:** de cada local sai exatamente um trecho: Σ_j x_ij = 1 para todo i em P.
+2. **Uma chegada:** a cada local chega exatamente um trecho: Σ_i x_ij = 1 para todo j em P.
+3. **Uma volta só:** os trechos formam um único circuito que passa pela base, sem circuitos separados. Para todo subconjunto S de P, não vazio e diferente de P, pelo menos um trecho sai de S: Σ x_ij ≥ 1, com i em S e j fora de S.
+4. **Domínio:** x_ij ∈ {0, 1}.
+
+As restrições 1 e 2 garantem que cada ponto de W é visitado exatamente uma vez. As restrições 1 a 3 garantem que a rota começa e termina na base. A restrição de usar só ruas existentes é cumprida pela expansão de cada trecho no seu menor caminho em G.
+
+**Representação da solução.** O algoritmo não manipula as variáveis x_ij diretamente. Ele guarda uma **permutação π** dos k pontos de W, e a rota é b → W[π₁] → … → W[πₖ] → b. Cada permutação corresponde a uma única escolha de x (x_ij = 1 exatamente para os pares consecutivos da rota) que cumpre as restrições 1 a 4. Assim, o algoritmo **nunca gera uma solução inválida**, e a função objetivo é calculada como f(π) = d(b, π₁) + Σ d(πᵢ, πᵢ₊₁) + d(πₖ, b).
 
 ### Da cidade aos pontos que importam
 
