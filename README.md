@@ -117,7 +117,7 @@ Aceitar pioras parece contraditório, mas é o que permite **escapar de mínimos
    - Se Δ > 0 (o vizinho é pior), **aceita com probabilidade e^(−Δ/T)**.
 4. **Guardar a melhor:** a melhor rota já vista é sempre guardada.
 5. **Resfriar:** multiplica a temperatura por α (por exemplo, 0,995): `T ← α · T`.
-6. **Repetir** os passos 2 a 5 até atingir o número máximo de iterações ou até a temperatura ficar muito baixa (T < 0,001).
+6. **Repetir** os passos 2 a 5 até gastar o **orçamento**, o número de vizinhos avaliados. Toda execução gasta o orçamento inteiro, para que execuções com parâmetros diferentes sejam comparadas com o mesmo esforço.
 
 O passo 3 é o centro do algoritmo:
 
@@ -129,8 +129,8 @@ O passo 3 é o centro do algoritmo:
 | Parâmetro | Efeito | Padrão |
 | --- | --- | --- |
 | Temperatura inicial T0 | Quanto maior, mais exploração no começo | 100 |
-| Resfriamento α | Mais perto de 1 resfria mais devagar: mais iterações e, em geral, rotas melhores | 0,995 |
-| Máximo de iterações | Limite de esforço computacional | 5000 |
+| Resfriamento α | Mais perto de 1 resfria mais devagar e mantém a exploração por mais tempo | 0,995 |
+| Orçamento (iterações) | Quantidade de vizinhos avaliados em cada execução | 5000 |
 
 ### Como saber se a rota é boa?
 
@@ -138,6 +138,8 @@ O resultado do Simulated Annealing é comparado com duas referências:
 
 - **Vizinho mais próximo:** a solução inicial. Mostra quanto o SA melhorou.
 - **Força bruta:** testa todas as k! ordens e encontra o **ótimo exato**. Só é viável para k ≤ 8 e mostra quão longe o SA ficou do melhor possível (o *gap*).
+
+Para k > 8, os experimentos usam como referência a **melhor rota encontrada** em todas as execuções daquela cidade. Ela pode não ser o ótimo, e os resultados indicam qual referência foi usada (seção 7).
 
 ## 5. A aplicação
 
@@ -185,7 +187,7 @@ encaminha as chamadas `/api` para a API Python em `http://127.0.0.1:8000`.
 ### Sugestões de experimentos na aplicação
 
 - **T0 muito baixa** (por exemplo, 0,1): o algoritmo quase não aceita pioras e tende a parar no primeiro mínimo local.
-- **α = 0,9 contra α = 0,999:** resfriar rápido termina cedo; resfriar devagar costuma achar rotas mais curtas.
+- **α = 0,9 contra α = 0,999:** com o mesmo orçamento, resfriar rápido vira busca local cedo; resfriar devagar explora por mais tempo e costuma achar rotas mais curtas.
 - **k pequeno (≤ 8):** confira se o SA chega ao ótimo da força bruta.
 - **k grande (30 ou mais):** veja a diferença entre o SA e o vizinho mais próximo aumentar.
 
@@ -207,8 +209,7 @@ uv run ktsp --help                            # lista os parâmetros e os padrõ
 | `--sa-seed` | Semente das escolhas aleatórias do Simulated Annealing | 0 |
 | `--t0` | Temperatura inicial | 100 |
 | `--alpha` | Taxa de resfriamento | 0,995 |
-| `--iterations` | Máximo de iterações | 5000 |
-| `--min-temperature` | Temperatura de parada | 0,001 |
+| `--iterations` | Orçamento: vizinhos avaliados (a execução sempre gasta todos) | 5000 |
 
 A saída mostra a distância do vizinho mais próximo, o ótimo (para k ≤ 8), a distância do SA, a ordem de visita e o caminho completo. A primeira linha é o comando completo, com todos os parâmetros, para repetir aquela execução.
 
@@ -223,11 +224,11 @@ Nenhum resultado depende de sorte ou da máquina. A mesma combinação de parâm
 
 ## 7. Experimentos em lote
 
-O script abaixo roda o algoritmo em várias cidades, combinando valores de k, de α e de sementes:
+O script abaixo roda o algoritmo em várias cidades, combinando valores de k e de α. Como o SA faz sorteios, um resultado isolado não diz muito: em cada combinação, o SA roda uma vez para cada semente do SA, e a análise olha a distribuição dos resultados. Todas as execuções gastam o mesmo orçamento, então a comparação entre valores de α é justa.
 
 ```bash
 uv run python experiments/run.py                       # grade padrão
-uv run python experiments/run.py --k 10 20 --alpha 0.99 0.999 --seeds 0 1 2
+uv run python experiments/run.py --k 10 20 --alpha 0.99 0.999 --seeds 0 1 2 --sa-seeds 0 1 2 3 4
 uv run python experiments/run.py --help                # lista os parâmetros
 ```
 
@@ -237,18 +238,27 @@ uv run python experiments/run.py --help                # lista os parâmetros
 | `--k` | Valores de k testados | 6 8 15 30 |
 | `--alpha` | Taxas de resfriamento testadas | 0,99 0,995 0,999 |
 | `--seeds` | Sementes das cidades | 0 a 9 |
-| `--sa-seed` | Semente do SA, a mesma em todas as execuções | 0 |
+| `--sa-seeds` | Sementes do SA: uma execução por semente em cada cidade e α | 0 a 9 |
 | `--t0` | Temperatura inicial | 100 |
-| `--iterations` | Máximo de iterações | 20000 |
+| `--iterations` | Orçamento: vizinhos avaliados por execução | 20000 |
 | `--output` | Pasta de saída | `experiments/results/` |
 
 Ele grava na pasta de saída:
 
-- `params.json`: os parâmetros usados, para repetir o experimento;
-- `results.csv`: uma linha por execução;
-- `summary.csv`: médias por k e α;
-- `improvement_over_nn.png`: melhoria sobre o vizinho mais próximo;
-- `gap_to_optimum.png`: distância até o ótimo, para k ≤ 8.
+- `params.json`: os parâmetros usados, o commit do código (e se havia alterações não commitadas) e as versões do Python e das bibliotecas, para repetir e rastrear o experimento;
+- `results.csv`: uma linha por execução (resultado bruto);
+- `summary.csv`: métricas por k e α (resultado derivado);
+- `deviation.png`, `hit_rate.png` e `improvement_over_nn.png`: as métricas abaixo, por k e α.
+
+| Métrica | O que responde | Como se calcula |
+| --- | --- | --- |
+| Desvio (%) | Quão longe da melhor rota conhecida? | 100 × (distância − referência) ÷ referência |
+| Taxa de acerto (%) | Quantas execuções chegam à melhor rota conhecida? | 100 × acertos ÷ execuções |
+| Melhoria sobre o vizinho mais próximo (%) | Quanto o SA encurtou a solução inicial? | 100 × (inicial − SA) ÷ inicial |
+| Avaliações até a melhor (`found_at`) | Quanto do orçamento o SA precisou? | Iteração em que a melhor rota da execução apareceu |
+| Tempo (`seconds`) | Quanto custa cada execução? | Relógio do início ao fim |
+
+A **referência** é o ótimo exato quando k ≤ 8 e, para k maior, a melhor rota achada em todas as execuções daquela cidade. A coluna `reference_is_optimum` diz qual das duas foi usada, porque a segunda pode não ser o ótimo.
 
 Todas as colunas se repetem em qualquer máquina, exceto `seconds`, que mede o tempo de execução.
 
