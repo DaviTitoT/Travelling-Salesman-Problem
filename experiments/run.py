@@ -1,50 +1,185 @@
 """Experimentos do Simulated Annealing sobre instâncias geradas.
 
-Varia k, a taxa de resfriamento α, a solução inicial e a semente. Compara o SA
-com o vizinho mais próximo, a ordem aleatória e, para k pequeno, o ótimo exato.
+Varia k e a taxa de resfriamento α em várias cidades, roda o SA com várias
+sementes em cada uma e mede o desvio em relação à melhor rota conhecida: o ótimo
+exato para k pequeno ou a melhor rota achada nas execuções.
 
-Execução: ``uv run python experiments/run.py``. Saída em ``experiments/results/``.
+Execução: ``uv run python experiments/run.py`` (``--help`` lista os parâmetros).
+Para repetir uma execução anterior e comparar os resultados:
+``uv run python experiments/run.py --params <pasta da execução>/params.json``.
+Todos os parâmetros têm padrão fixo e são gravados em ``params.json`` junto dos
+resultados, com o commit e as versões do ambiente; só a coluna ``seconds``
+depende da máquina.
 """
 
+import argparse
+import json
+import math
+import platform
 import random
+import subprocess
+import sys
 import time
+from datetime import UTC, datetime
+from importlib.metadata import version
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
 
 from ktsp.annealing import AnnealingParams, anneal
-from ktsp.baselines import (
-    MAX_BRUTE_FORCE_K,
-    brute_force,
-    nearest_neighbor,
-    random_order,
-)
+from ktsp.baselines import MAX_BRUTE_FORCE_K, brute_force, nearest_neighbor
 from ktsp.distances import build_distance_table
 from ktsp.instance import generate_instance
 from ktsp.solution import route_cost
 
-GRID_SIZE = 15
-K_VALUES = (6, 8, 15, 30)
-COOLING_RATES = (0.99, 0.995, 0.999)
-INITIAL_SOLUTIONS = ("nearest_neighbor", "random")
-SEEDS = range(10)
-INITIAL_TEMPERATURE = 100.0
-MAX_ITERATIONS = 20_000
-RESULTS_DIR = Path(__file__).parent / "results"
-INITIAL_SOLUTION_LABELS = {
-    "nearest_neighbor": "Vizinho mais próximo",
-    "random": "Aleatória",
-}
+PACKAGES = ("networkx", "pandas", "matplotlib")
 
 
-def run_experiments() -> pd.DataFrame:
-    """Executa todas as combinações e devolve uma linha por execução do SA."""
+def build_parser() -> argparse.ArgumentParser:
+    """Define os parâmetros da grade de experimentos."""
+    parser = argparse.ArgumentParser(
+        description=__doc__.splitlines()[0],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument("--grid-size", type=int, default=15, help="lado da grade")
+    parser.add_argument(
+        "--k", type=int, nargs="+", default=[6, 8, 15, 30], help="valores de k"
+    )
+    parser.add_argument(
+        "--alpha",
+        type=float,
+        nargs="+",
+        default=[0.99, 0.995, 0.999],
+        help="taxas de resfriamento",
+    )
+    parser.add_argument(
+        "--seeds",
+        type=int,
+        nargs="+",
+        default=list(range(10)),
+        help="sementes das cidades",
+    )
+    parser.add_argument(
+        "--sa-seeds",
+        type=int,
+        nargs="+",
+        default=list(range(10)),
+        help="sementes do SA (uma execução por semente em cada cidade e α)",
+    )
+    parser.add_argument("--t0", type=float, default=100.0, help="temperatura inicial")
+    parser.add_argument(
+        "--iterations",
+        type=int,
+        default=20_000,
+        help="orçamento: vizinhos avaliados por execução",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path(__file__).parent / "results",
+        help="pasta onde cada execução cria a subpasta <timestamp>-<commit>",
+    )
+    parser.add_argument(
+        "--params",
+        type=Path,
+        help="params.json de uma execução anterior: repete os parâmetros dela "
+        "(flags explícitas têm prioridade), confere o ambiente e compara os "
+        "resultados ao final",
+    )
+    parser.add_argument(
+        "--allow-env-mismatch",
+        action="store_true",
+        help="roda mesmo com Python ou bibliotecas em versões diferentes das do "
+        "params.json",
+    )
+    return parser
+
+
+# Opções que controlam o script, não o experimento: não vão para params.json.
+SCRIPT_OPTIONS = {"output", "params", "allow_env_mismatch"}
+
+
+def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, dict | None]:
+    """Lê os argumentos; com ``--params``, os valores do arquivo viram o padrão.
+
+    Returns:
+        Os argumentos e o registro lido do ``params.json`` (ou ``None``).
+    """
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.params is None:
+        return args, None
+    try:
+        record = json.loads(args.params.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        parser.error(f"não foi possível ler {args.params}: {error}")
+    saved = record.get("params", record)  # params.json antigo: só os parâmetros
+    unknown = set(saved) - (set(vars(args)) - SCRIPT_OPTIONS)
+    if unknown:
+        parser.error(f"parâmetros desconhecidos em {args.params}: {sorted(unknown)}")
+    parser.set_defaults(**saved)
+    return parser.parse_args(argv), record
+
+
+def check_environment(saved: dict | None, current: dict) -> tuple[list[str], list[str]]:
+    """Compara o ambiente gravado com o atual.
+
+    Args:
+        saved: Campo ``environment`` do ``params.json`` original.
+        current: Ambiente atual, de ``environment()``.
+
+    Returns:
+        Incompatibilidades (podem mudar os resultados) e avisos.
+    """
+    if saved is None:
+        return [], ["o params.json não registra o ambiente; nada foi conferido"]
+    problems, warnings = [], []
+    # O módulo random só garante a mesma sequência dentro da mesma versão maior.menor.
+    if saved["python"].rsplit(".", 1)[0] != current["python"].rsplit(".", 1)[0]:
+        problems.append(
+            f"Python {saved['python']} no original, {current['python']} aqui"
+        )
+    for name, wanted in saved["packages"].items():
+        found = current["packages"].get(name)
+        if found != wanted:
+            problems.append(f"{name} {wanted} no original, {found} aqui")
+    if saved["commit"] != current["commit"]:
+        warnings.append(
+            f"commit diferente ({str(saved['commit'])[:7]} no original, "
+            f"{str(current['commit'])[:7]} aqui): os resultados mudam se o "
+            "algoritmo mudou"
+        )
+    if saved["uncommitted_changes"]:
+        warnings.append("o original tinha alterações não commitadas")
+    if current["uncommitted_changes"]:
+        warnings.append("este código tem alterações não commitadas")
+    return problems, warnings
+
+
+def compare_results(original: Path, new: Path) -> str:
+    """Compara dois ``results.csv`` ignorando ``seconds``, a única coluna que muda."""
+    old = pd.read_csv(original).drop(columns="seconds")
+    cur = pd.read_csv(new).drop(columns="seconds")
+    if list(old.columns) != list(cur.columns) or len(old) != len(cur):
+        return "não comparáveis: colunas ou número de execuções diferentes"
+    differs = (old.ne(cur) & ~(old.isna() & cur.isna())).any(axis=1).sum()
+    if differs == 0:
+        return f"idênticos ({len(old)} execuções, sem contar o tempo)"
+    return f"{differs} de {len(old)} execuções com resultados diferentes"
+
+
+def run_experiments(args: argparse.Namespace) -> pd.DataFrame:
+    """Executa todas as combinações e devolve uma linha por execução do SA.
+
+    Cada combinação de cidade e α roda uma vez por semente do SA, porque o
+    resultado de um algoritmo com sorteio é uma distribuição, não um número.
+    """
     rows = []
-    for k in K_VALUES:
-        for seed in SEEDS:
+    for k in args.k:
+        for seed in args.seeds:
             table = build_distance_table(
-                generate_instance(GRID_SIZE, GRID_SIZE, k, seed)
+                generate_instance(args.grid_size, args.grid_size, k, seed)
             )
             initial = nearest_neighbor(table)
             optimum = (
@@ -52,121 +187,139 @@ def run_experiments() -> pd.DataFrame:
                 if k <= MAX_BRUTE_FORCE_K
                 else None
             )
-            nn_cost = route_cost(initial, table)
-            for initial_solution in INITIAL_SOLUTIONS:
-                initial_order = (
-                    initial
-                    if initial_solution == "nearest_neighbor"
-                    else random_order(table, random.Random(seed))
-                )
-                initial_cost = route_cost(initial_order, table)
-                for alpha in COOLING_RATES:
-                    params = AnnealingParams(INITIAL_TEMPERATURE, alpha, MAX_ITERATIONS)
+            for alpha in args.alpha:
+                params = AnnealingParams(args.t0, alpha, args.iterations)
+                for sa_seed in args.sa_seeds:
                     start = time.perf_counter()
-                    *_, last = anneal(table, initial_order, params, random.Random(seed))
+                    best_cost, found_at = math.inf, 0
+                    for step in anneal(table, initial, params, random.Random(sa_seed)):
+                        if step.best_cost < best_cost:
+                            best_cost, found_at = step.best_cost, step.iteration
                     rows.append(
                         {
                             "k": k,
-                            "alpha": alpha,
                             "seed": seed,
-                            "initial_solution": initial_solution,
-                            "initial_cost": initial_cost,
-                            "nn_cost": nn_cost,
-                            "sa_cost": last.best_cost,
+                            "alpha": alpha,
+                            "sa_seed": sa_seed,
+                            "nn_cost": route_cost(initial, table),
+                            "sa_cost": best_cost,
                             "opt_cost": optimum,
-                            "iterations": last.iteration,
+                            "found_at": found_at,
+                            "iterations": step.iteration,
                             "seconds": time.perf_counter() - start,
                         }
                     )
     df = pd.DataFrame(rows)
+    # Referência: o ótimo (força bruta) quando existe; senão, a melhor rota achada
+    # em todas as execuções daquela cidade, que pode não ser o ótimo.
+    best_found = df.groupby(["k", "seed"]).sa_cost.transform("min")
+    df["reference"] = df.opt_cost.fillna(best_found)
+    df["reference_is_optimum"] = df.opt_cost.notna()
+    df["deviation_pct"] = 100 * (df.sa_cost - df.reference) / df.reference
+    df["hit"] = df.sa_cost == df.reference
     df["improvement_over_nn_pct"] = 100 * (df.nn_cost - df.sa_cost) / df.nn_cost
-    df["improvement_over_initial_pct"] = (
-        100 * (df.initial_cost - df.sa_cost) / df.initial_cost
-    )
-    df["gap_to_opt_pct"] = 100 * (df.sa_cost - df.opt_cost) / df.opt_cost
     return df
 
 
+def environment() -> dict:
+    """Versão do código e do ambiente, para rastrear como os resultados nasceram."""
+
+    def git(*command: str) -> str | None:
+        result = subprocess.run(
+            ["git", *command], capture_output=True, text=True, check=False
+        )
+        return result.stdout.strip() if result.returncode == 0 else None
+
+    status = git("status", "--porcelain")
+    return {
+        "commit": git("rev-parse", "HEAD"),
+        "uncommitted_changes": bool(status) if status is not None else None,
+        "python": platform.python_version(),
+        "packages": {name: version(name) for name in PACKAGES},
+    }
+
+
 def plot_by_k(df: pd.DataFrame, column: str, ylabel: str, path: Path) -> None:
-    """Gráfico de barras da média de ``column`` por k, estratégia e α."""
-    means = df.pivot_table(
-        index="k",
-        columns=["initial_solution", "alpha"],
-        values=column,
-        aggfunc="mean",
-    )
-    means.columns = [
-        f"{INITIAL_SOLUTION_LABELS[strategy]} | α={alpha:g}"
-        for strategy, alpha in means.columns
-    ]
+    """Gráfico de barras da média de ``column`` por k, uma barra por α."""
+    means = df.pivot_table(index="k", columns="alpha", values=column, aggfunc="mean")
     ax = means.plot.bar(rot=0, figsize=(7, 4))
-    ax.set_xlabel("Quantidade de entregas (k)")
     ax.set_ylabel(ylabel)
-    ax.legend(title="Solução inicial | resfriamento")
-    ax.figure.tight_layout()
-    ax.figure.savefig(path, dpi=150)
-    plt.close(ax.figure)
-
-
-def plot_initial_solution_comparison(df: pd.DataFrame, path: Path) -> None:
-    """Compara custos iniciais e finais médios das estratégias por k."""
-    means = df.groupby(["k", "initial_solution"])[["initial_cost", "sa_cost"]].mean()
-    comparison = pd.DataFrame(index=sorted(df.k.unique()))
-    for strategy, label in INITIAL_SOLUTION_LABELS.items():
-        strategy_means = means.xs(strategy, level="initial_solution")
-        comparison[f"{label} (inicial)"] = strategy_means.initial_cost
-        comparison[f"{label} (final)"] = strategy_means.sa_cost
-
-    ax = comparison.plot.bar(rot=0, figsize=(8, 4))
-    ax.set_xlabel("Quantidade de entregas (k)")
-    ax.set_ylabel("Distância média")
-    ax.legend(title="Solução")
+    ax.legend(title="α")
     ax.figure.tight_layout()
     ax.figure.savefig(path, dpi=150)
     plt.close(ax.figure)
 
 
 def main() -> None:
-    """Roda os experimentos e salva CSV, resumo e gráficos."""
-    RESULTS_DIR.mkdir(exist_ok=True)
-    df = run_experiments()
-    df.to_csv(RESULTS_DIR / "results.csv", index=False)
+    """Roda os experimentos e salva parâmetros, CSV, resumo e gráficos."""
+    args, original = parse_args()
+    env = environment()
+    if original is not None:
+        problems, warnings = check_environment(original.get("environment"), env)
+        for warning in warnings:
+            print(f"Aviso: {warning}", file=sys.stderr)
+        if problems and not args.allow_env_mismatch:
+            sys.exit(
+                "Ambiente incompatível com o da execução original:\n  - "
+                + "\n  - ".join(problems)
+                + "\nInstale as mesmas versões (uv sync) ou use --allow-env-mismatch."
+            )
+    # Uma pasta por execução, <timestamp UTC>-<commit>[-dirty], para nunca sobrescrever
+    # resultados anteriores e saber de qual versão do código cada um veio.
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    name = f"{timestamp}-{(env['commit'] or 'sem-commit')[:7]}"
+    if env["uncommitted_changes"]:
+        name += "-dirty"  # código diferente do commit: o resultado não é reproduzível
+    results_dir = args.output / name
+    results_dir.mkdir(parents=True)
+    params = {k: v for k, v in vars(args).items() if k not in SCRIPT_OPTIONS}
+    record = {"params": params, "environment": env}
+    if original is not None:
+        record["reproduces"] = args.params.parent.name
+    (results_dir / "params.json").write_text(json.dumps(record, indent=2) + "\n")
+    df = run_experiments(args)
+    df.to_csv(results_dir / "results.csv", index=False)
 
-    summary = df.groupby(["initial_solution", "k", "alpha"])[
-        [
-            "initial_cost",
-            "sa_cost",
-            "improvement_over_nn_pct",
-            "improvement_over_initial_pct",
-            "gap_to_opt_pct",
-            "iterations",
-            "seconds",
-        ]
-    ].mean()
-    summary.to_csv(RESULTS_DIR / "summary.csv")
+    summary = df.groupby(["k", "alpha"]).agg(
+        runs=("sa_cost", "size"),
+        reference_is_optimum=("reference_is_optimum", "all"),
+        deviation_mean_pct=("deviation_pct", "mean"),
+        deviation_std_pct=("deviation_pct", "std"),
+        hit_rate_pct=("hit", lambda hits: 100 * hits.mean()),
+        improvement_over_nn_pct=("improvement_over_nn_pct", "mean"),
+        found_at_mean=("found_at", "mean"),
+        seconds_mean=("seconds", "mean"),
+    )
+    summary.to_csv(results_dir / "summary.csv")
     print(summary.round(3).to_string())
 
     plot_by_k(
         df,
         "improvement_over_nn_pct",
         "Melhoria média sobre vizinho mais próximo (%)",
-        RESULTS_DIR / "improvement_over_nn.png",
+        results_dir / "improvement_over_nn.png",
     )
     plot_by_k(
         df,
-        "improvement_over_initial_pct",
-        "Melhoria média sobre a solução inicial (%)",
-        RESULTS_DIR / "improvement_by_initial_solution.png",
+        "deviation_pct",
+        "Desvio médio da melhor rota conhecida (%)",
+        results_dir / "deviation.png",
     )
     plot_by_k(
-        df[df.k <= MAX_BRUTE_FORCE_K],
-        "gap_to_opt_pct",
-        "Gap médio para o ótimo (%)",
-        RESULTS_DIR / "gap_to_optimum.png",
+        df.assign(hit=100 * df.hit),
+        "hit",
+        "Taxa de acerto da melhor rota conhecida (%)",
+        results_dir / "hit_rate.png",
     )
-    plot_initial_solution_comparison(
-        df, RESULTS_DIR / "initial_solution_comparison.png"
-    )
+    print(f"Resultados gravados em {results_dir}")
+    if original is not None and (args.params.parent / "results.csv").exists():
+        verdict = compare_results(
+            args.params.parent / "results.csv", results_dir / "results.csv"
+        )
+        (results_dir / "comparison.txt").write_text(
+            f"Comparação com {args.params.parent.name}: {verdict}\n"
+        )
+        print(f"Comparação com a execução original: {verdict}")
 
 
 if __name__ == "__main__":

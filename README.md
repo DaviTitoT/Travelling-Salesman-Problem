@@ -8,7 +8,9 @@ Este README apresenta, em sequência:
 2. por que ele é difícil;
 3. como ele foi modelado;
 4. como o algoritmo o resolve;
-5. como usar a aplicação que mostra o algoritmo funcionando.
+5. como usar a aplicação que mostra o algoritmo funcionando;
+6. como rodar pelo terminal e por que os resultados são reproduzíveis;
+7. como rodar os experimentos em lote.
 
 ---
 
@@ -29,15 +31,15 @@ Esse problema é uma variação do clássico **Problema do Caixeiro Viajante** (
 
 ## 2. Por que é difícil?
 
-O TSP é **NP-difícil**: não se conhece algoritmo que encontre a melhor rota em tempo polinomial. A forma direta de resolvê-lo é testar todas as ordens possíveis, e o número de ordens cresce como k! (fatorial):
+O TSP é **NP-difícil**: não se conhece algoritmo que encontre a melhor rota em tempo polinomial. A forma direta de resolvê-lo é testar todas as ordens possíveis, e o número de ordens cresce como k! (fatorial). Cada rota aparece em duas ordens, uma para cada sentido (as distâncias valem nos dois sentidos), então existem k!/2 rotas diferentes:
 
-| Pontos (k) | Ordens possíveis (k!) |
-| ---: | ---: |
-| 5 | 120 |
-| 8 | 40 320 |
-| 10 | 3 628 800 |
-| 15 | ≈ 1,3 × 10¹² |
-| 30 | ≈ 2,7 × 10³² |
+| Pontos (k) | Ordens possíveis (k!) | Rotas diferentes (k!/2) |
+| ---: | ---: | ---: |
+| 5 | 120 | 60 |
+| 8 | 40 320 | 20 160 |
+| 10 | 3 628 800 | 1 814 400 |
+| 15 | ≈ 1,3 × 10¹² | ≈ 6,5 × 10¹¹ |
+| 30 | ≈ 2,7 × 10³² | ≈ 1,3 × 10³² |
 
 Com 30 entregas, testar todas as ordens é inviável. Por isso usamos uma **metaheurística**: um método que não garante o ótimo, mas encontra soluções muito boas em pouco tempo.
 
@@ -51,6 +53,29 @@ Com 30 entregas, testar todas as ordens é inviável. Por isso usamos uma **meta
 | **Objetivo** | Minimizar a distância total percorrida |
 | **Restrições** | Cada ponto de W aparece exatamente uma vez; a rota começa e termina na base; só são usadas ruas que existem no grafo |
 | **Saída** | A ordem de visita, o caminho completo vértice a vértice e a distância total |
+
+### Formulação matemática
+
+Sejam G = (V, E) o grafo da cidade, com distância c_e em cada rua e, b a base e W o vetor com os k pontos de entrega. Os locais que importam formam o conjunto P = {b} ∪ W, com k + 1 elementos.
+
+**Dados.** Para cada par de locais i, j em P, d_ij é a distância do **menor caminho** de i até j em G. É por meio de d_ij que o modelo trata o grafo não completo: dois pontos sem rua direta entre si continuam ligados, pelo caminho mais curto, que pode passar por quaisquer outras esquinas.
+
+**Variáveis de decisão.** Para cada par de locais distintos i, j em P, x_ij vale 1 se a rota vai de i direto para j (pelo menor caminho) e 0 caso contrário. São (k + 1) · k variáveis.
+
+**Função objetivo.** Minimizar a distância total:
+
+  f(x) = Σ d_ij · x_ij, somada sobre todos os pares i ≠ j de P.
+
+**Restrições.**
+
+1. **Uma saída:** de cada local sai exatamente um trecho: Σ_j x_ij = 1 para todo i em P.
+2. **Uma chegada:** a cada local chega exatamente um trecho: Σ_i x_ij = 1 para todo j em P.
+3. **Uma volta só:** os trechos formam um único circuito que passa pela base, sem circuitos separados. Para todo subconjunto S de P, não vazio e diferente de P, pelo menos um trecho sai de S: Σ x_ij ≥ 1, com i em S e j fora de S.
+4. **Domínio:** x_ij ∈ {0, 1}.
+
+As restrições 1 e 2 garantem que cada ponto de W é visitado exatamente uma vez. As restrições 1 a 3 garantem que a rota começa e termina na base. A restrição de usar só ruas existentes é cumprida pela expansão de cada trecho no seu menor caminho em G.
+
+**Representação da solução.** O algoritmo não manipula as variáveis x_ij diretamente. Ele guarda uma **permutação π** dos k pontos de W, e a rota é b → W[π₁] → … → W[πₖ] → b. Cada permutação corresponde a uma única escolha de x (x_ij = 1 exatamente para os pares consecutivos da rota) que cumpre as restrições 1 a 4. Assim, o algoritmo **nunca gera uma solução inválida**, e a função objetivo é calculada como f(π) = d(b, π₁) + Σ d(πᵢ, πᵢ₊₁) + d(πₖ, b).
 
 ### Da cidade aos pontos que importam
 
@@ -85,14 +110,14 @@ Aceitar pioras parece contraditório, mas é o que permite **escapar de mínimos
 
 ### Passo a passo
 
-1. **Solução inicial:** usa a heurística do *vizinho mais próximo*. A aplicação compara a rota iniciada na base escolhida com outra rota iniciada em uma base sorteada.
+1. **Solução inicial:** usa a heurística do *vizinho mais próximo*. Partindo da base, o entregador vai sempre ao ponto não visitado mais próximo.
 2. **Gerar um vizinho:** escolhe dois pontos da ordem e **inverte o trecho entre eles** (movimento *2-opt*). Por exemplo, `A B C D E` vira `A D C B E`. Esse movimento desfaz cruzamentos na rota.
 3. **Decidir se aceita:** seja Δ a diferença de distância entre o vizinho e a solução atual.
    - Se Δ ≤ 0 (o vizinho é melhor ou igual), **aceita sempre**.
    - Se Δ > 0 (o vizinho é pior), **aceita com probabilidade e^(−Δ/T)**.
 4. **Guardar a melhor:** a melhor rota já vista é sempre guardada.
 5. **Resfriar:** multiplica a temperatura por α (por exemplo, 0,995): `T ← α · T`.
-6. **Repetir** os passos 2 a 5 até atingir o número máximo de iterações ou até a temperatura ficar muito baixa (T < 0,001).
+6. **Repetir** os passos 2 a 5 até gastar o **orçamento**, o número de vizinhos avaliados. Toda execução gasta o orçamento inteiro, para que execuções com parâmetros diferentes sejam comparadas com o mesmo esforço.
 
 O passo 3 é o centro do algoritmo:
 
@@ -103,17 +128,32 @@ O passo 3 é o centro do algoritmo:
 
 | Parâmetro | Efeito | Padrão |
 | --- | --- | --- |
-| Heurística inicial | Estratégia para construir a primeira ordem de visitas | Vizinho mais próximo |
 | Temperatura inicial T0 | Quanto maior, mais exploração no começo | 100 |
-| Resfriamento α | Mais perto de 1 resfria mais devagar: mais iterações e, em geral, rotas melhores | 0,995 |
-| Máximo de iterações | Limite de esforço computacional | 5000 |
+| Resfriamento α | Mais perto de 1 resfria mais devagar e mantém a exploração por mais tempo | 0,995 |
+| Orçamento (iterações) | Quantidade de vizinhos avaliados em cada execução | 5000 |
+
+### Modo híbrido SA + Tabu (opcional)
+
+O algoritmo do projeto é o Simulated Annealing. O modo híbrido existe só para comparação e fica desligado por padrão.
+
+Quando a busca se aproxima de um ótimo local e a temperatura já está baixa, o SA passa a sortear repetidamente os mesmos vizinhos e rejeitá-los. Em execuções medidas, cerca de 85% dos vizinhos avaliados já tinham sido avaliados antes. O modo híbrido acrescenta uma **lista tabu** com os últimos movimentos 2-opt sorteados (os pares de posições invertidas):
+
+- um movimento que está na lista **não é avaliado** e não gasta orçamento: outro é sorteado no lugar;
+- todo movimento avaliado entra na lista e sai dela depois de L novos movimentos, em que L é o tamanho da lista;
+- o restante do algoritmo (regra de aceitação, resfriamento, orçamento) é o mesmo do SA.
+
+A lista guarda posições, não rotas: depois que um movimento é aceito, as mesmas posições passam a gerar outro vizinho. É uma simplificação comum da Tabu Search, que evita desfazer imediatamente um movimento e reavaliar o mesmo vizinho enquanto a solução atual não muda.
+
+Na aplicação, o seletor **Modo de busca** escolhe entre *SA puro* e *SA + Tabu* e, no segundo caso, mostra o tamanho da lista. Para comparar, rode a mesma cidade com as mesmas sementes nos dois modos.
 
 ### Como saber se a rota é boa?
 
 O resultado do Simulated Annealing é comparado com duas referências:
 
-- **Vizinho mais próximo:** heurística usada para criar a ordem inicial das duas rotas na aplicação. A interface compara uma base escolhida com outra aleatória; os experimentos em lote também comparam ordens iniciais aleatórias e gulosas.
+- **Vizinho mais próximo:** a solução inicial. Mostra quanto o SA melhorou.
 - **Força bruta:** testa todas as k! ordens e encontra o **ótimo exato**. Só é viável para k ≤ 8 e mostra quão longe o SA ficou do melhor possível (o *gap*).
+
+Para k > 8, os experimentos usam como referência a **melhor rota encontrada** em todas as execuções daquela cidade. Ela pode não ser o ótimo, e os resultados indicam qual referência foi usada (seção 7).
 
 ## 5. A aplicação
 
@@ -121,55 +161,29 @@ A aplicação web permite ver o Simulated Annealing trabalhando, iteração por 
 
 ### Instalação e execução
 
-É preciso ter o [uv](https://docs.astral.sh/uv/) e o [Node.js LTS](https://nodejs.org/en/download)
-instalados. O Node.js inclui o npm. Se acabou de instalar o Node.js, feche e
-reabra o PowerShell para atualizar o `PATH`. Confira a instalação:
+É preciso ter o [uv](https://docs.astral.sh/uv/) e o Node.js instalados. O
+solver continua em Python; a interface usa React e Vite.
 
 ```bash
-node --version
-npm --version
-```
-
-O solver continua em Python; a interface usa React e Vite. Para executar no
-Windows, abra **dois terminais PowerShell** na raiz do repositório.
-
-**Terminal 1 — API Python:**
-
-```bash
-cd C:\Users\SEU_USUARIO\Travelling-Salesman-Problem
 uv sync
 uv run python app/api.py
 ```
 
-Deixe esse terminal aberto. Quando a mensagem `API k-TSP disponível em
-http://127.0.0.1:8000` aparecer, a API está pronta.
+Em outro terminal:
 
-**Terminal 2 — interface React:**
-
-```powershell
-cd C:\Users\SEU_USUARIO\Travelling-Salesman-Problem\web
+```bash
+cd web
 npm install
 npm run dev
 ```
 
-`npm install` instala as dependências do frontend. Ele só precisa ser executado
-na primeira vez ou quando as dependências mudarem. Mantenha o terminal aberto e
-acesse o endereço informado pelo Vite, normalmente `http://localhost:5173`.
-O Vite encaminha as chamadas `/api` para a API Python em
-`http://127.0.0.1:8000`.
-
-**Importante:** execute `npm install` e `npm run dev` dentro da pasta `web`, onde
-está o `package.json`. A pasta `app` contém a API Python e não tem `package.json`.
-Se aparecer `npm is not recognized`, instale o Node.js LTS e reabra o PowerShell.
-Se aparecer `ENOENT` informando que não encontrou `package.json`, confira que o
-terminal está na pasta `web` (`Get-Location`).
-
-Para encerrar, pressione `Ctrl+C` em cada terminal.
+Abra o endereço mostrado pelo Vite (normalmente `http://localhost:5173`). O Vite
+encaminha as chamadas `/api` para a API Python em `http://127.0.0.1:8000`.
 
 ### Usando, passo a passo
 
-1. **Monte a cidade** na barra lateral. Escolha a **semente**, o **tamanho da grade** e o **número de entregas k**. A grade reserva cruzamentos para comparar duas bases distintas. Execute uma vez para gerar o mapa; depois, clique em qualquer cruzamento para definir a base escolhida e execute novamente.
-2. **Ajuste o algoritmo:** temperatura inicial **T0**, resfriamento **α** e **máximo de iterações**. A cada execução, a aplicação compara a base escolhida com uma base aleatória, mantendo a cidade e os pontos de entrega. A semente da cidade mantém o mapa reproduzível; a semente da base aleatória muda a cada execução.
+1. **Monte a cidade** na barra lateral. Escolha a **semente da cidade**, a **semente do SA**, o **tamanho da grade** e o **número de entregas k**. Execute uma vez para gerar o mapa; depois, clique em um cruzamento para escolher a base e execute novamente.
+2. **Ajuste o algoritmo:** temperatura inicial **T0**, resfriamento **α** e **máximo de iterações**.
 3. Clique em **Executar**. Com *Animar a execução* marcado, o mapa mostra a rota mudando ao longo da busca.
 4. **Leia o mapa:**
    - **B** (vermelho) é a base;
@@ -181,44 +195,105 @@ Para encerrar, pressione `Ctrl+C` em cada terminal.
    - **Custo:** a distância da rota corrente oscila no começo (exploração) e se estabiliza no fim. A melhor distância só diminui.
    - **Temperatura:** decai de forma geométrica.
    - **Taxa de aceitação de pioras:** começa alta e cai junto com a temperatura. É a passagem da exploração para o refinamento.
-7. **Compare** os custos inicial e final das duas bases na seção de comparação. O vizinho mais próximo inicia ambas as rotas; para k ≤ 8, também é exibido o ótimo exato da base selecionada no mapa.
+7. **Compare as bases** na seção correspondente. Uma rota usa a base escolhida no mapa; a outra usa uma base aleatória. Ambas mantêm as mesmas entregas e os mesmos parâmetros do algoritmo. A semente da base aleatória aparece na comparação para permitir reproduzi-la.
 8. **Veja a resposta final:** a ordem de visita, o caminho completo vértice a vértice e a distância total.
 
 ### Sugestões de experimentos na aplicação
 
 - **T0 muito baixa** (por exemplo, 0,1): o algoritmo quase não aceita pioras e tende a parar no primeiro mínimo local.
-- **α = 0,9 contra α = 0,999:** resfriar rápido termina cedo; resfriar devagar costuma achar rotas mais curtas.
+- **α = 0,9 contra α = 0,999:** com o mesmo orçamento, resfriar rápido vira busca local cedo; resfriar devagar explora por mais tempo e costuma achar rotas mais curtas.
 - **k pequeno (≤ 8):** confira se o SA chega ao ótimo da força bruta.
 - **k grande (30 ou mais):** veja a diferença entre o SA e o vizinho mais próximo aumentar.
 
-## 6. Experimentos em lote
+## 6. Linha de comando e reprodutibilidade
 
-O script abaixo compara as duas estratégias de solução inicial em várias cidades,
-combinando valores de k, de α e de sementes. Para cada instância e configuração,
-o algoritmo roda uma vez iniciando pelo vizinho mais próximo e outra com uma
-ordem aleatória reproduzível; as execuções compartilham a mesma semente para o
-Simulated Annealing.
+### Resolver uma instância pelo terminal
 
 ```bash
-uv run python experiments/run.py
+uv run ktsp                                   # todos os parâmetros com o valor padrão
+uv run ktsp --size 15 --k 8 --seed 7 --sa-seed 3 --t0 50 --alpha 0.999
+uv run ktsp --help                            # lista os parâmetros e os padrões
 ```
 
-Ele grava os resultados em `experiments/results/`:
+| Parâmetro | Significado | Padrão |
+| --- | --- | --- |
+| `--size` | Lado da grade (a cidade tem size × size esquinas) | 12 |
+| `--k` | Número de pontos de entrega | 10 |
+| `--seed` | Semente da cidade: ruas, distâncias, base e entregas | 42 |
+| `--sa-seed` | Semente das escolhas aleatórias do Simulated Annealing | 0 |
+| `--t0` | Temperatura inicial | 100 |
+| `--alpha` | Taxa de resfriamento | 0,995 |
+| `--iterations` | Orçamento: vizinhos avaliados (a execução sempre gasta todos) | 5000 |
+| `--tabu-tenure` | Tamanho da lista tabu do modo híbrido; 0 é o SA puro | 0 |
 
-- `results.csv`: uma linha por execução;
-- `summary.csv`: médias por estratégia inicial, k e α;
-- `initial_solution_comparison.png`: custos iniciais e finais médios das duas estratégias;
-- `improvement_by_initial_solution.png`: melhoria sobre a estratégia inicial escolhida;
-- `improvement_over_nn.png`: melhoria sobre o vizinho mais próximo;
-- `gap_to_optimum.png`: distância até o ótimo, para k ≤ 8.
+A saída mostra a distância do vizinho mais próximo, o ótimo (para k ≤ 8), a distância do SA, a ordem de visita e o caminho completo. A primeira linha é o comando completo, com todos os parâmetros, para repetir aquela execução.
 
-Os CSVs registram a estratégia inicial, seu custo e o custo final do SA. A
-métrica `improvement_over_initial_pct` permite comparar quanto cada execução
-melhorou em relação à sua própria solução de partida.
+### Por que os resultados são sempre os mesmos
 
-Os valores testados ficam em constantes no início de `experiments/run.py`.
+Nenhum resultado depende de sorte ou da máquina. A mesma combinação de parâmetros produz sempre a mesma cidade, a mesma rota e a mesma distância:
 
-## 7. Organização do código
+- **Duas sementes explícitas.** A semente da cidade e a semente do SA são separadas. Assim dá para testar o SA com várias sementes na mesma cidade. As duas têm valor padrão fixo, e o programa não usa nenhuma outra fonte de aleatoriedade (relógio, sistema operacional, etc.).
+- **Mesmo caminho em todas as interfaces.** A CLI e a API da aplicação web chamam a mesma função (`src/ktsp/pipeline.py`). Por isso os mesmos parâmetros dão o mesmo resultado no terminal e no navegador.
+- **Versões fixas.** O gerador de números aleatórios do Python só garante a mesma sequência dentro da mesma versão do Python. Por isso o projeto exige o Python 3.12 (`.python-version` e `pyproject.toml`), e o `uv.lock` fixa a versão de cada biblioteca.
+- **Teste de referência.** Um teste automatizado confere a cidade e a rota da execução padrão contra valores gravados. Se `uv run pytest` passa numa máquina, ela reproduz os mesmos resultados.
+
+## 7. Experimentos em lote
+
+O script abaixo roda o algoritmo em várias cidades, combinando valores de k e de α. Como o SA faz sorteios, um resultado isolado não diz muito: em cada combinação, o SA roda uma vez para cada semente do SA, e a análise olha a distribuição dos resultados. Todas as execuções gastam o mesmo orçamento, então a comparação entre valores de α é justa.
+
+```bash
+uv run python experiments/run.py                       # grade padrão
+uv run python experiments/run.py --k 10 20 --alpha 0.99 0.999 --seeds 0 1 2 --sa-seeds 0 1 2 3 4
+uv run python experiments/run.py --help                # lista os parâmetros
+```
+
+| Parâmetro | Significado | Padrão |
+| --- | --- | --- |
+| `--grid-size` | Lado da grade das cidades | 15 |
+| `--k` | Valores de k testados | 6 8 15 30 |
+| `--alpha` | Taxas de resfriamento testadas | 0,99 0,995 0,999 |
+| `--seeds` | Sementes das cidades | 0 a 9 |
+| `--sa-seeds` | Sementes do SA: uma execução por semente em cada cidade e α | 0 a 9 |
+| `--t0` | Temperatura inicial | 100 |
+| `--iterations` | Orçamento: vizinhos avaliados por execução | 20000 |
+| `--output` | Pasta onde cada execução cria a sua subpasta | `experiments/results/` |
+
+Cada execução cria uma pasta nova dentro de `--output`, no formato `<timestamp>-<commit>` (com `-dirty` no fim quando há alterações não commitadas), por exemplo `20261029T055508Z-70fc5c5`. O timestamp é o horário de início em UTC (o `Z` no fim), e o commit são os 7 primeiros caracteres do commit do código. Assim nenhuma execução sobrescreve outra, e cada resultado mostra no nome de qual versão do código veio. Se o código tiver alterações não commitadas, o nome ganha o sufixo `-dirty` (por exemplo, `20261029T055508Z-70fc5c5-dirty`): esse resultado não pode ser reproduzido só com o commit, e o mesmo fica registrado no `params.json`.
+
+Cada pasta contém:
+
+- `params.json`: os parâmetros usados, o commit do código (e se havia alterações não commitadas) e as versões do Python e das bibliotecas, para repetir e rastrear o experimento;
+- `results.csv`: uma linha por execução (resultado bruto);
+- `summary.csv`: métricas por k e α (resultado derivado);
+- `deviation.png`, `hit_rate.png` e `improvement_over_nn.png`: as métricas abaixo, por k e α.
+
+| Métrica | O que responde | Como se calcula |
+| --- | --- | --- |
+| Desvio (%) | Quão longe da melhor rota conhecida? | 100 × (distância − referência) ÷ referência |
+| Taxa de acerto (%) | Quantas execuções chegam à melhor rota conhecida? | 100 × acertos ÷ execuções |
+| Melhoria sobre o vizinho mais próximo (%) | Quanto o SA encurtou a solução inicial? | 100 × (inicial − SA) ÷ inicial |
+| Avaliações até a melhor (`found_at`) | Quanto do orçamento o SA precisou? | Iteração em que a melhor rota da execução apareceu |
+| Tempo (`seconds`) | Quanto custa cada execução? | Relógio do início ao fim |
+
+A **referência** é o ótimo exato quando k ≤ 8 e, para k maior, a melhor rota achada em todas as execuções daquela cidade. A coluna `reference_is_optimum` diz qual das duas foi usada, porque a segunda pode não ser o ótimo.
+
+Todas as colunas se repetem em qualquer máquina, exceto `seconds`, que mede o tempo de execução.
+
+### Reproduzir um experimento e comparar os resultados
+
+Para repetir uma execução, por exemplo a de um colega, passe o `params.json` da pasta dela:
+
+```bash
+uv run python experiments/run.py --params experiments/results/20261029T055508Z-70fc5c5/params.json
+```
+
+1. **Parâmetros:** os valores do arquivo viram o padrão. Uma flag passada explicitamente tem prioridade, por exemplo `--iterations 1000`, para variar um parâmetro e manter o resto.
+2. **Checagem do ambiente, antes de rodar:**
+   - versão do Python (maior.menor) ou de uma biblioteca diferente da registrada: o script **para** e lista as diferenças, porque elas podem mudar os resultados. Rode `uv sync` para instalar as versões do projeto, ou use `--allow-env-mismatch` para rodar mesmo assim;
+   - commit diferente ou alterações não commitadas, no original ou aqui: o script só **avisa**, porque comparar versões diferentes do código é um uso legítimo.
+3. **Comparação, ao terminar:** se a pasta original tiver o `results.csv`, o script compara os dois, ignorando a coluna `seconds`, e diz se são idênticos ou quantas execuções mudaram. O veredito fica em `comparison.txt`, e o `params.json` novo registra em `reproduces` qual execução foi repetida.
+
+## 8. Organização do código
 
 O fluxo dos dados segue a modelagem:
 
@@ -235,7 +310,9 @@ instance.py  →  distances.py  →  baselines.py  →  annealing.py  →  solut
 | `src/ktsp/distances.py` | Menores caminhos (Dijkstra) entre a base e os pontos de entrega |
 | `src/ktsp/solution.py` | Custo de uma ordem e expansão no caminho completo |
 | `src/ktsp/annealing.py` | Simulated Annealing (vizinho 2-opt e resfriamento geométrico) |
-| `src/ktsp/baselines.py` | Vizinho mais próximo, ordem aleatória e força bruta |
+| `src/ktsp/baselines.py` | Vizinho mais próximo e força bruta |
+| `src/ktsp/pipeline.py` | Execução completa (cidade + SA) a partir das sementes, usada pela CLI e pela API |
+| `src/ktsp/cli.py` | Linha de comando `ktsp` |
 | `app/api.py` | API local que executa o solver Python e entrega os dados à interface |
 | `web/` | Interface React com Vite, mapa, reprodução e gráficos |
 | `experiments/run.py` | Experimentos em lote |
@@ -249,6 +326,29 @@ uv run ruff check . && uv run ruff format --check .  # lint e formatação
 ```
 
 A configuração do `ruff` e do `pytest` fica em `pyproject.toml`.
+
+## Problemas conhecidos
+
+### Windows: `ImportError: DLL load failed while importing mtrand`
+
+O script de experimentos (`uv run python experiments/run.py`) para com o erro:
+
+```
+ImportError: DLL load failed while importing mtrand:
+Uma política de Controlo de Aplicações bloqueou este ficheiro.
+```
+
+**Causa:** o **Smart App Control** do Windows 11 bloqueia uma DLL do NumPy (`numpy\random\mtrand.*.pyd`). O NumPy é usado pelo pandas e pelo matplotlib no script de experimentos. A API e a interface React não usam o NumPy. Não é um defeito do projeto.
+
+**Solução:**
+
+1. Abra **Segurança do Windows → Controlo de aplicações e browser → Definições do Smart App Control**.
+2. Mude a opção para **Desativado**.
+3. Rode de novo `uv run python experiments/run.py`. Não é preciso reinstalar nada.
+
+> Em algumas versões do Windows 11, depois de desligado, o Smart App Control só volta a ser ligado reinstalando o sistema.
+
+Em computadores gerenciados (por exemplo, de empresas), o bloqueio pode vir de uma política do administrador, que o usuário não consegue desativar. Nesse caso, peça a liberação ao administrador ou rode o projeto no **WSL** (Ubuntu dentro do Windows), onde os mesmos comandos `uv` funcionam.
 
 ## Uso de IA Generativa
 

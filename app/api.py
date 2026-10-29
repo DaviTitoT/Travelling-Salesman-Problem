@@ -4,15 +4,13 @@ import json
 import random
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from ktsp.annealing import AnnealingParams, anneal
-from ktsp.baselines import (
-    MAX_BRUTE_FORCE_K,
-    brute_force,
-    nearest_neighbor,
-)
-from ktsp.distances import build_distance_table
+from ktsp import pipeline
+from ktsp.annealing import AnnealingParams
+from ktsp.baselines import MAX_BRUTE_FORCE_K, brute_force
 from ktsp.instance import Instance, generate_instance
 from ktsp.solution import Route, route_cost
+
+DEFAULT_PARAMS = AnnealingParams()
 
 
 def _path_positions(
@@ -23,21 +21,25 @@ def _path_positions(
 
 
 def solve(payload: dict) -> dict:
-    """Compara as rotas a partir da base escolhida e de uma base aleatória."""
-    size = int(payload.get("size", 12))
-    k = int(payload.get("k", 10))
-    seed = int(payload.get("seed", 42))
-    initial_temperature = float(payload.get("initialTemperature", 100))
-    cooling_rate = float(payload.get("coolingRate", 0.995))
-    max_iterations = int(payload.get("maxIterations", 5000))
+    """Compara as rotas iniciadas na base escolhida e em uma base aleatória."""
+    size = int(payload.get("size", pipeline.DEFAULT_SIZE))
+    k = int(payload.get("k", pipeline.DEFAULT_K))
+    seed = int(payload.get("seed", pipeline.DEFAULT_SEED))
+    sa_seed = int(payload.get("saSeed", pipeline.DEFAULT_SA_SEED))
     route_base = payload.get("routeBase", "selected")
-    requested_base = payload.get("base")
     random_seed_value = payload.get("randomSeed")
     random_seed = (
         int(random_seed_value)
         if random_seed_value is not None
         else random.SystemRandom().getrandbits(32)
     )
+    requested_base = payload.get("base")
+    initial_temperature = float(
+        payload.get("initialTemperature", DEFAULT_PARAMS.initial_temperature)
+    )
+    cooling_rate = float(payload.get("coolingRate", DEFAULT_PARAMS.cooling_rate))
+    max_iterations = int(payload.get("maxIterations", DEFAULT_PARAMS.max_iterations))
+    tabu_tenure = int(payload.get("tabuTenure", DEFAULT_PARAMS.tabu_tenure))
     if not 4 <= size <= 25:
         raise ValueError("O tamanho da grade deve estar entre 4 e 25.")
     if not 1 <= k <= min(40, size * size - 2):
@@ -48,11 +50,16 @@ def solve(payload: dict) -> dict:
         raise ValueError("Confira a temperatura inicial e a taxa de resfriamento.")
     if not 10 <= max_iterations <= 200000:
         raise ValueError("O máximo de iterações deve estar entre 10 e 200.000.")
+    if not 0 <= tabu_tenure <= 100:
+        raise ValueError("A lista tabu deve ter entre 0 e 100 movimentos.")
     if route_base not in ("selected", "random"):
         raise ValueError("A base exibida deve ser 'selected' ou 'random'.")
     if random_seed < 0:
         raise ValueError("A semente da base aleatória não pode ser negativa.")
 
+    params = AnnealingParams(
+        initial_temperature, cooling_rate, max_iterations, tabu_tenure
+    )
     instance = generate_instance(size, size, k, seed)
     if requested_base is not None:
         if (
@@ -68,49 +75,57 @@ def solve(payload: dict) -> dict:
             (node_column, node_row): node
             for node, (node_row, node_column) in instance.graph.nodes(data="pos")
         }
-        base_node = node_by_position[(column, row)]
-        delivery_rng = random.Random(seed)
-        deliveries = tuple(
-            delivery_rng.sample(
-                sorted(node for node in instance.graph if node != base_node), k
+        selected_base = node_by_position[(column, row)]
+        if selected_base in instance.deliveries:
+            deliveries = tuple(
+                random.Random(seed).sample(
+                    sorted(
+                        node
+                        for node in instance.graph
+                        if node != selected_base and node != instance.base
+                    ),
+                    k,
+                )
             )
-        )
-        instance = Instance(graph=instance.graph, base=base_node, deliveries=deliveries)
-    fixed_base = instance.base
+            instance = Instance(
+                graph=instance.graph,
+                base=selected_base,
+                deliveries=deliveries,
+            )
+        else:
+            instance = Instance(
+                graph=instance.graph,
+                base=selected_base,
+                deliveries=instance.deliveries,
+            )
+
+    selected_instance = instance
     available_bases = sorted(
         node for node in instance.graph if node not in instance.deliveries
     )
-    random_candidates = [node for node in available_bases if node != fixed_base]
-    if not random_candidates:
-        random_candidates = available_bases
+    random_candidates = [
+        node for node in available_bases if node != selected_instance.base
+    ]
     random_base = random.Random(random_seed).choice(random_candidates)
     instances = {
-        "selected": instance,
+        "selected": selected_instance,
         "random": Instance(
             graph=instance.graph,
             base=random_base,
             deliveries=instance.deliveries,
         ),
     }
-    tables = {
-        strategy: build_distance_table(strategy_instance)
-        for strategy, strategy_instance in instances.items()
-    }
-    params = AnnealingParams(initial_temperature, cooling_rate, max_iterations)
     runs = {
-        strategy: list(
-            anneal(
-                tables[strategy],
-                nearest_neighbor(tables[strategy]),
-                params,
-                random.Random(seed),
-            )
-        )
-        for strategy in instances
+        strategy: pipeline.solve_instance(instance, sa_seed, params)
+        for strategy, instance in instances.items()
     }
-    table = tables[route_base]
-    steps = runs[route_base]
-    initial = nearest_neighbor(table)
+    selected_run = runs[route_base]
+    instance = selected_run.instance
+    table, initial, steps = (
+        selected_run.table,
+        selected_run.initial,
+        selected_run.steps,
+    )
     optimum = brute_force(table) if k <= MAX_BRUTE_FORCE_K else None
     positions = {
         node: [column, row] for node, (row, column) in instance.graph.nodes(data="pos")
@@ -125,16 +140,16 @@ def solve(payload: dict) -> dict:
     best = Route.from_order(steps[-1].best_order, table)
     current = Route.from_order(steps[-1].current_order, table)
     comparisons = []
-    for strategy, strategy_steps in runs.items():
-        strategy_table = tables[strategy]
-        strategy_initial = nearest_neighbor(strategy_table)
+    for strategy, strategy_run in runs.items():
+        strategy_steps = strategy_run.steps
+        strategy_table = strategy_run.table
         strategy_best = Route.from_order(strategy_steps[-1].best_order, strategy_table)
-        strategy_base_node = instances[strategy].base
-        strategy_initial_cost = route_cost(strategy_initial, strategy_table)
+        strategy_initial = Route.from_order(strategy_run.initial, strategy_table)
+        strategy_initial_cost = strategy_initial.cost
         comparisons.append(
             {
                 "strategy": strategy,
-                "base": positions[instances[strategy].base],
+                "base": positions[strategy_run.instance.base],
                 "initialCost": strategy_initial_cost,
                 "bestCost": strategy_best.cost,
                 "improvementPct": (
@@ -142,24 +157,24 @@ def solve(payload: dict) -> dict:
                     * (strategy_initial_cost - strategy_best.cost)
                     / strategy_initial_cost
                 ),
-                "initialVisits": list(
-                    Route.from_order(strategy_initial, strategy_table).visits
-                ),
+                "initialVisits": list(strategy_initial.visits),
                 "bestVisits": list(strategy_best.visits),
                 "bestVertexPath": list(strategy_best.path),
-                "baseNode": strategy_base_node,
+                "baseNode": strategy_run.instance.base,
                 "iterations": strategy_steps[-1].iteration,
             }
         )
     result = {
         "size": size,
         "seed": seed,
+        "saSeed": sa_seed,
+        "tabuTenure": tabu_tenure,
         "k": k,
         "routeBase": route_base,
         "randomSeed": random_seed,
         "comparisons": comparisons,
-        "base": positions[instance.base],
-        "displayBase": positions[instances[route_base].base],
+        "base": positions[selected_instance.base],
+        "displayBase": positions[instance.base],
         "deliveries": [positions[node] for node in instance.deliveries],
         "edges": [[positions[u], positions[v]] for u, v in instance.graph.edges],
         "positions": positions,
@@ -187,6 +202,10 @@ def solve(payload: dict) -> dict:
         "currentCost": current.cost,
         "optimumCost": route_cost(optimum, table) if optimum is not None else None,
         "iterations": steps[-1].iteration,
+        # Primeira iteração em que a melhor rota final apareceu.
+        "foundAt": next(
+            step.iteration for step in steps if step.best_cost == best.cost
+        ),
     }
     return result
 
