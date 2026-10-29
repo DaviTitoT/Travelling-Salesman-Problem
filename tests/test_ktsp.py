@@ -6,6 +6,7 @@ import pytest
 
 from ktsp.annealing import AnnealingParams, anneal
 from ktsp.baselines import brute_force, nearest_neighbor
+from ktsp.cli import main
 from ktsp.distances import build_distance_table
 from ktsp.instance import generate_instance
 from ktsp.pipeline import solve
@@ -97,3 +98,10 @@ def test_invalid_annealing_params_raise(kwargs):
     with pytest.raises(ValueError):
         AnnealingParams(**kwargs)
 
+
+def test_cli_prints_reproducible_command(capsys):
+    main(["--k", "4", "--seed", "7"])
+    first = capsys.readouterr().out
+    main(["--k", "4", "--seed", "7"])
+    assert capsys.readouterr().out == first
+    assert "--sa-seed 0" in first and "Distância total (SA)" in first
