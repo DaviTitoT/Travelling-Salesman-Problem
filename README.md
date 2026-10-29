@@ -85,7 +85,7 @@ Aceitar pioras parece contraditório, mas é o que permite **escapar de mínimos
 
 ### Passo a passo
 
-1. **Solução inicial configurável:** pode ser a heurística do *vizinho mais próximo* (padrão), que parte da base e escolhe sempre o ponto não visitado mais próximo, ou uma ordem aleatória reproduzível pela semente da instância.
+1. **Solução inicial:** usa a heurística do *vizinho mais próximo*. A aplicação compara a rota iniciada na base escolhida com outra rota iniciada em uma base sorteada.
 2. **Gerar um vizinho:** escolhe dois pontos da ordem e **inverte o trecho entre eles** (movimento *2-opt*). Por exemplo, `A B C D E` vira `A D C B E`. Esse movimento desfaz cruzamentos na rota.
 3. **Decidir se aceita:** seja Δ a diferença de distância entre o vizinho e a solução atual.
    - Se Δ ≤ 0 (o vizinho é melhor ou igual), **aceita sempre**.
@@ -103,7 +103,7 @@ O passo 3 é o centro do algoritmo:
 
 | Parâmetro | Efeito | Padrão |
 | --- | --- | --- |
-| Solução inicial | Estratégia usada para escolher a primeira ordem de visitas: vizinho mais próximo ou aleatória | Vizinho mais próximo |
+| Heurística inicial | Estratégia para construir a primeira ordem de visitas | Vizinho mais próximo |
 | Temperatura inicial T0 | Quanto maior, mais exploração no começo | 100 |
 | Resfriamento α | Mais perto de 1 resfria mais devagar: mais iterações e, em geral, rotas melhores | 0,995 |
 | Máximo de iterações | Limite de esforço computacional | 5000 |
@@ -112,7 +112,7 @@ O passo 3 é o centro do algoritmo:
 
 O resultado do Simulated Annealing é comparado com duas referências:
 
-- **Vizinho mais próximo:** uma referência gulosa para avaliar a busca. Na aplicação, a melhoria é calculada em relação à solução inicial selecionada; nos experimentos, a comparação usa o vizinho mais próximo.
+- **Vizinho mais próximo:** heurística usada para criar a ordem inicial das duas rotas na aplicação. A interface compara uma base escolhida com outra aleatória; os experimentos em lote também comparam ordens iniciais aleatórias e gulosas.
 - **Força bruta:** testa todas as k! ordens e encontra o **ótimo exato**. Só é viável para k ≤ 8 e mostra quão longe o SA ficou do melhor possível (o *gap*).
 
 ## 5. A aplicação
@@ -168,8 +168,8 @@ Para encerrar, pressione `Ctrl+C` em cada terminal.
 
 ### Usando, passo a passo
 
-1. **Monte a cidade** na barra lateral. Escolha a **semente**, o **tamanho da grade** e o **número de entregas k**.
-2. **Ajuste o algoritmo:** temperatura inicial **T0**, resfriamento **α** e **máximo de iterações**.
+1. **Monte a cidade** na barra lateral. Escolha a **semente**, o **tamanho da grade** e o **número de entregas k**. A grade reserva cruzamentos para comparar duas bases distintas. Execute uma vez para gerar o mapa; depois, clique em qualquer cruzamento para definir a base escolhida e execute novamente.
+2. **Ajuste o algoritmo:** temperatura inicial **T0**, resfriamento **α** e **máximo de iterações**. A cada execução, a aplicação compara a base escolhida com uma base aleatória, mantendo a cidade e os pontos de entrega. A semente da cidade mantém o mapa reproduzível; a semente da base aleatória muda a cada execução.
 3. Clique em **Executar**. Com *Animar a execução* marcado, o mapa mostra a rota mudando ao longo da busca.
 4. **Leia o mapa:**
    - **B** (vermelho) é a base;
@@ -181,7 +181,7 @@ Para encerrar, pressione `Ctrl+C` em cada terminal.
    - **Custo:** a distância da rota corrente oscila no começo (exploração) e se estabiliza no fim. A melhor distância só diminui.
    - **Temperatura:** decai de forma geométrica.
    - **Taxa de aceitação de pioras:** começa alta e cai junto com a temperatura. É a passagem da exploração para o refinamento.
-7. **Compare** o resultado com o vizinho mais próximo e, para k ≤ 8, com o ótimo.
+7. **Compare** os custos inicial e final das duas bases na seção de comparação. O vizinho mais próximo inicia ambas as rotas; para k ≤ 8, também é exibido o ótimo exato da base selecionada no mapa.
 8. **Veja a resposta final:** a ordem de visita, o caminho completo vértice a vértice e a distância total.
 
 ### Sugestões de experimentos na aplicação

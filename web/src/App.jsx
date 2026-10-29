@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Activity, ArrowDownRight, Bike, ChevronDown, CircleHelp, Play, RotateCcw, SlidersHorizontal, Sparkles } from 'lucide-react';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
-const defaults = { seed: 42, size: 12, k: 10, initialSolution: 'nearest_neighbor', initialTemperature: 100, coolingRate: 0.995, maxIterations: 5000 };
+const defaults = { seed: 42, size: 12, k: 10, routeBase: 'selected', initialTemperature: 100, coolingRate: 0.995, maxIterations: 5000 };
 const fmt = (value, digits = 0) => Number(value).toLocaleString('pt-BR', { maximumFractionDigits: digits });
 
 function Field({ label, value, onChange, min, max, step = 1, suffix }) {
@@ -12,13 +12,14 @@ function Field({ label, value, onChange, min, max, step = 1, suffix }) {
   </label>;
 }
 
-function RouteMap({ data, step }) {
+function RouteMap({ data, step, selectedBase, onSelectBase }) {
   const pad = 28;
   const scale = 44;
   const point = ([x, y]) => [pad + x * scale, pad + y * scale];
   const width = pad * 2 + (data.size - 1) * scale;
   const height = width;
-  const [bx, by] = point(data.base);
+  const [bx, by] = point(data.displayBase);
+  const [selectedBaseX, selectedBaseY] = point(selectedBase);
   const order = step.bestOrder.map((index) => data.deliveries[index - 1]);
   return <svg className="map-svg" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Mapa da rota calculada">
     <defs><pattern id="dots" width="18" height="18" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#e5e9ee" /></pattern></defs>
@@ -26,8 +27,10 @@ function RouteMap({ data, step }) {
     {data.edges.map(([a, b], i) => { const [x1, y1] = point(a); const [x2, y2] = point(b); return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} className="street" />; })}
     <polyline points={step.currentPath.map(point).map(([x,y]) => `${x},${y}`).join(' ')} className="route-current" />
     <polyline points={step.bestPath.map(point).map(([x,y]) => `${x},${y}`).join(' ')} className="route-best" />
+    {Object.entries(data.positions).map(([node, coords]) => { const [x,y] = point(coords); return <circle key={node} cx={x} cy={y} r="11" className="base-selector" role="button" tabIndex="0" aria-label={`Definir base na coluna ${coords[0]}, linha ${coords[1]}`} onClick={() => onSelectBase(coords)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelectBase(coords); } }} />; })}
     {data.deliveries.map((coords, i) => { const [x,y] = point(coords); const number = order.findIndex((p) => p[0] === coords[0] && p[1] === coords[1]) + 1; return <g key={i} className="delivery"><circle cx={x} cy={y} r="13"/><text x={x} y={y+4}>{number || '·'}</text></g>; })}
     <g className="base"><circle cx={bx} cy={by} r="17"/><text x={bx} y={by+4}>B</text></g>
+    {(selectedBase[0] !== data.base[0] || selectedBase[1] !== data.base[1]) && <g className="selected-base"><circle cx={selectedBaseX} cy={selectedBaseY} r="19"/><text x={selectedBaseX} y={selectedBaseY+4}>E</text></g>}
   </svg>;
 }
 
@@ -42,6 +45,18 @@ function ChartCard({ title, icon: Icon, data, dataKey, color, domain }) {
   </section>;
 }
 
+function ComparisonCard({ result, bestCost, selected }) {
+  const label = result.strategy === 'random' ? 'Base aleatória' : 'Base escolhida';
+  return <article className={`comparison-card${result.bestCost === bestCost ? ' comparison-best' : ''}`}>
+    <div className="comparison-title"><strong>{label}</strong><span>Base [{result.base.join(', ')}]</span>{result.strategy === selected && <span>MAPA</span>}</div>
+    <div className="comparison-metrics">
+      <div><small>Custo inicial</small><strong>{fmt(result.initialCost)} <em>unidades</em></strong></div>
+      <div><small>Melhor custo final</small><strong>{fmt(result.bestCost)} <em>unidades</em></strong></div>
+      <div><small>Melhoria</small><strong>{fmt(result.improvementPct, 1)}<em>%</em></strong></div>
+    </div>
+  </article>;
+}
+
 export default function App() {
   const [params, setParams] = useState(defaults);
   const [data, setData] = useState(null);
@@ -49,16 +64,18 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [animate, setAnimate] = useState(false);
   const [error, setError] = useState('');
+  const [selectedBase, setSelectedBase] = useState(null);
   const set = (key) => (value) => setParams((old) => ({ ...old, [key]: value }));
   const run = async () => {
     setBusy(true); setError('');
-    try { const response = await fetch('/api/solve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params) }); const result = await response.json(); if (!response.ok) throw new Error(result.error || 'Falha ao executar.'); setData(result); setSelected(result.steps.length - 1); }
+    try { const payload = selectedBase ? { ...params, base: selectedBase } : params; const response = await fetch('/api/solve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); const result = await response.json(); if (!response.ok) throw new Error(result.error || 'Falha ao executar.'); setData(result); setSelectedBase(result.base); setSelected(result.steps.length - 1); }
     catch (err) { setError(`${err.message} Confira se a API Python está em execução.`); }
     finally { setBusy(false); }
   };
   const history = data?.steps ?? [];
   const step = history[selected] ?? null;
   const chartData = useMemo(() => history.map((item) => ({ iteration: item.iteration, current: item.currentCost, best: item.bestCost, temperature: item.temperature })), [history]);
+  const bestComparisonCost = data ? Math.min(...data.comparisons.map((item) => item.bestCost)) : 0;
   useEffect(() => {
     if (!animate || history.length === 0) return undefined;
     const timer = window.setInterval(() => setSelected((index) => Math.min(index + 1, history.length - 1)), 35);
@@ -68,26 +85,30 @@ export default function App() {
     if (animate && history.length > 0 && selected >= history.length - 1) setAnimate(false);
   }, [animate, history.length, selected]);
   const improvement = data ? ((data.initialCost - data.bestCost) / data.initialCost) * 100 : 0;
+  const baseChanged = Boolean(data && selectedBase && (
+    selectedBase[0] !== data.base[0] || selectedBase[1] !== data.base[1]
+  ));
   const move = (direction) => setSelected((index) => Math.max(0, Math.min(history.length - 1, index + direction)));
   return <div className="layout">
     <aside className="sidebar"><div className="brand"><div className="brand-mark"><Bike size={21}/></div><div><strong>RotaLab</strong><small>OTIMIZAÇÃO DE ROTAS</small></div></div>
       <div className="side-section"><div className="section-heading"><span>CONFIGURAÇÃO</span><SlidersHorizontal size={15}/></div>
         <div className="group-label">Instância da cidade</div>
         <label className="number-field">Semente <input type="number" min="0" value={params.seed} onChange={(e) => set('seed')(Number(e.target.value))}/></label>
-        <Field label="Tamanho da grade" value={params.size} onChange={set('size')} min={4} max={25} suffix=" × "/>
-        <Field label="Pontos de entrega (k)" value={params.k} onChange={set('k')} min={1} max={Math.min(40, params.size ** 2 - 1)}/>
+        <Field label="Tamanho da grade" value={params.size} onChange={(value) => { setSelectedBase(null); set('size')(value); }} min={4} max={25} suffix=" × "/>
+        <Field label="Pontos de entrega (k)" value={params.k} onChange={set('k')} min={1} max={Math.min(40, params.size ** 2 - 2)}/>
         <div className="group-label algorithm-label">Simulated Annealing</div>
-        <label className="select-field">Solução inicial
-          <select value={params.initialSolution} onChange={(event) => set('initialSolution')(event.target.value)}>
-            <option value="nearest_neighbor">Vizinho mais próximo</option>
-            <option value="random">Aleatória</option>
+        <label className="select-field">Base exibida no mapa
+          <select value={params.routeBase} onChange={(event) => set('routeBase')(event.target.value)}>
+            <option value="selected">Base escolhida</option>
+            <option value="random">Base aleatória</option>
           </select>
         </label>
+        <small className="comparison-hint">Compara a base escolhida com outra sorteada. Clique em um cruzamento para escolher a primeira; a semente da cidade mantém os mesmos pontos de entrega.</small>
         <Field label="Temperatura inicial" value={params.initialTemperature} onChange={set('initialTemperature')} min={1} max={300} step={1}/>
         <Field label="Resfriamento α" value={params.coolingRate} onChange={set('coolingRate')} min={0.9} max={0.9999} step={0.0001}/>
         <label className="number-field">Máximo de iterações <input type="number" min="10" max="200000" step="500" value={params.maxIterations} onChange={(e) => set('maxIterations')(Number(e.target.value))}/></label>
       </div>
-      <button className="run-button" onClick={run} disabled={busy}><Play size={16} fill="currentColor"/>{busy ? 'Calculando rota…' : 'Executar algoritmo'}</button>
+      <button className="run-button" onClick={run} disabled={busy}><Play size={16} fill="currentColor"/>{busy ? 'Calculando rota…' : baseChanged ? 'Recalcular com nova base' : 'Executar algoritmo'}</button>
       <div className="sidebar-foot"><span className="status-dot"/> Algoritmo pronto para executar</div>
     </aside>
     <main className="main">
@@ -95,12 +116,14 @@ export default function App() {
       {error && <div className="error-banner">{error}</div>}
       {!data ? <section className="welcome-card"><div className="welcome-icon"><Sparkles size={24}/></div><h2>Pronto para otimizar?</h2><p>Configure o tamanho da cidade e os parâmetros do algoritmo. A execução vai gerar uma instância reproduzível e buscar uma boa ordem para visitar todas as entregas.</p><button onClick={run} disabled={busy}>{busy ? 'Executando…' : 'Gerar primeira rota'} <Play size={15}/></button><div className="welcome-note"><span/> A busca é uma heurística e não garante o ótimo global.</div></section> : <>
         <div className="summary-row"><div className="summary-card"><span className="summary-icon orange"><Bike size={17}/></span><div><small>ENTREGAS</small><strong>{data.k}<em> pontos</em></strong></div></div><div className="summary-card"><span className="summary-icon blue"><Activity size={17}/></span><div><small>MELHOR DISTÂNCIA</small><strong>{fmt(data.bestCost)}<em> unidades</em></strong></div></div><div className="summary-card"><span className="summary-icon green"><ArrowDownRight size={17}/></span><div><small>MELHORIA SOBRE INICIAL</small><strong>{fmt(improvement, 1)}<em>%</em></strong></div></div><div className="summary-card"><span className="summary-icon violet"><RotateCcw size={17}/></span><div><small>ITERAÇÕES</small><strong>{fmt(data.iterations)}</strong></div></div></div>
+        <section className="comparison-section"><div className="comparison-heading"><div><div className="card-kicker">MESMA CIDADE, ENTREGAS E PARÂMETROS</div><h2>Comparação das bases</h2></div><p>A base aleatória usa a semente {data.randomSeed}; ambas as rotas começam pelo vizinho mais próximo.</p></div><div className="comparison-grid">{data.comparisons.map((result) => <ComparisonCard key={result.strategy} result={result} bestCost={bestComparisonCost} selected={data.routeBase}/>)}</div></section>
         <div className="workspace"><section className="map-card"><div className="card-head"><div><div className="card-kicker">INSTÂNCIA {String(data.seed).padStart(3, '0')}</div><h2>Mapa da cidade</h2></div><span className="live-pill"><i/> {step?.temperature < 0.05 ? 'BUSCA CONCLUÍDA' : 'HISTÓRICO DA BUSCA'}</span></div>
-          <div className="map-wrap">{step && <RouteMap data={data} step={step}/>}</div>
-          <div className="legend"><span><i className="legend-base">B</i> Base</span><span><i className="legend-delivery">1</i> Entregas</span><span><i className="legend-line"/> Melhor rota</span><span><i className="legend-dash"/> Rota atual</span></div>
+          <div className="map-wrap">{step && <RouteMap data={data} step={step} selectedBase={selectedBase ?? data.base} onSelectBase={setSelectedBase}/>}</div>
+          {baseChanged && <p className="base-selection-status">Nova base selecionada: coluna {selectedBase[0]}, linha {selectedBase[1]}. Execute novamente para recalcular as rotas.</p>}
+          <div className="legend"><span><i className="legend-base">B</i> Base exibida</span><span><i className="legend-selected-base">E</i> Base escolhida</span><span><i className="legend-delivery">1</i> Entregas</span><span><i className="legend-line"/> Melhor rota</span><span><i className="legend-dash"/> Rota atual</span></div>
           <div className="timeline"><div><strong>Reprodução da busca</strong><span>Iteração {fmt(step?.iteration ?? 0)} de {fmt(data.iterations)}</span></div><input aria-label="Iteração" type="range" min="0" max={history.length - 1} value={selected} onChange={(e) => setSelected(Number(e.target.value))}/><div className="timeline-actions"><button onClick={() => move(-1)} aria-label="Passo anterior">‹</button><button className="animate-button" onClick={() => { setAnimate(!animate); if (!animate) setSelected(0); }}><Play size={13} fill="currentColor"/>{animate ? 'Pausar' : 'Reproduzir'}</button><button onClick={() => move(1)} aria-label="Próximo passo">›</button><span>Temperatura <b>{fmt(step?.temperature ?? 0, 3)}</b></span></div></div>
         </section><div className="charts-column"><ChartCard title="Custo da rota" icon={Activity} data={chartData} dataKey="current" color="#f07a46"/><ChartCard title="Melhor custo encontrado" icon={Sparkles} data={chartData} dataKey="best" color="#3d80d6"/><ChartCard title="Temperatura" icon={SlidersHorizontal} data={chartData} dataKey="temperature" color="#8b70d5"/></div></div>
-        <section className="result-card"><div><div className="card-kicker">RESULTADO DA BUSCA</div><h2>Rota sugerida</h2><p>Solução inicial: {data.initialSolution === 'random' ? 'aleatória' : 'vizinho mais próximo'}.</p></div><div className="result-details"><div><small>Distância total</small><strong>{fmt(data.bestCost)} <em>unidades</em></strong></div>{data.optimumCost !== null && <div><small>Ótimo exato (comparação)</small><strong>{fmt(data.optimumCost)} <em>unidades</em></strong></div>}</div><div className="visit-order"><span>ORDEM DE VISITA</span><div>{data.bestVisits.map((visit, index) => <span className="visit-chip" key={`${visit}-${index}`}><b>{index + 1}</b>{visit}</span>)}</div></div><details className="path-details"><summary>Caminho completo por cruzamentos <ChevronDown size={15}/></summary><p>{data.bestVertexPath.join('  →  ')}</p></details></section>
+        <section className="result-card"><div><div className="card-kicker">RESULTADO DA BUSCA</div><h2>Rota sugerida</h2><p>Base {data.routeBase === 'random' ? 'aleatória' : 'escolhida'} em [{data.displayBase.join(', ')}].</p></div><div className="result-details"><div><small>Distância total</small><strong>{fmt(data.bestCost)} <em>unidades</em></strong></div>{data.optimumCost !== null && <div><small>Ótimo exato (comparação)</small><strong>{fmt(data.optimumCost)} <em>unidades</em></strong></div>}</div><div className="visit-order"><span>ORDEM DE VISITA</span><div>{data.bestVisits.map((visit, index) => <span className="visit-chip" key={`${visit}-${index}`}><b>{index + 1}</b>{visit}</span>)}</div></div><details className="path-details"><summary>Caminho completo por cruzamentos <ChevronDown size={15}/></summary><p>{data.bestVertexPath.join('  →  ')}</p></details></section>
       </>}
       <footer>RotaLab <span>·</span> k-TSP resolvido com Simulated Annealing <span>·</span> Unipampa</footer>
     </main>
