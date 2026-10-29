@@ -5,6 +5,8 @@ sementes em cada uma e mede o desvio em relação à melhor rota conhecida: o ó
 exato para k pequeno ou a melhor rota achada nas execuções.
 
 Execução: ``uv run python experiments/run.py`` (``--help`` lista os parâmetros).
+Para repetir uma execução anterior:
+``uv run python experiments/run.py --params <pasta da execução>/params.json``.
 Todos os parâmetros têm padrão fixo e são gravados em ``params.json`` junto dos
 resultados, com o commit e as versões do ambiente; só a coluna ``seconds``
 depende da máquina.
@@ -77,7 +79,39 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path(__file__).parent / "results",
         help="pasta onde cada execução cria a subpasta <timestamp>-<commit>",
     )
+    parser.add_argument(
+        "--params",
+        type=Path,
+        help="params.json de uma execução anterior: repete os parâmetros dela "
+        "(flags explícitas têm prioridade)",
+    )
     return parser
+
+
+# Opções que controlam o script, não o experimento: não vão para params.json.
+SCRIPT_OPTIONS = {"output", "params"}
+
+
+def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, dict | None]:
+    """Lê os argumentos; com ``--params``, os valores do arquivo viram o padrão.
+
+    Returns:
+        Os argumentos e o registro lido do ``params.json`` (ou ``None``).
+    """
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.params is None:
+        return args, None
+    try:
+        record = json.loads(args.params.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        parser.error(f"não foi possível ler {args.params}: {error}")
+    saved = record.get("params", record)  # params.json antigo: só os parâmetros
+    unknown = set(saved) - (set(vars(args)) - SCRIPT_OPTIONS)
+    if unknown:
+        parser.error(f"parâmetros desconhecidos em {args.params}: {sorted(unknown)}")
+    parser.set_defaults(**saved)
+    return parser.parse_args(argv), record
 
 
 def run_experiments(args: argparse.Namespace) -> pd.DataFrame:
@@ -163,7 +197,7 @@ def plot_by_k(df: pd.DataFrame, column: str, ylabel: str, path: Path) -> None:
 
 def main() -> None:
     """Roda os experimentos e salva parâmetros, CSV, resumo e gráficos."""
-    args = build_parser().parse_args()
+    args, original = parse_args()
     env = environment()
     # Uma pasta por execução, <timestamp UTC>-<commit>[-dirty], para nunca sobrescrever
     # resultados anteriores e saber de qual versão do código cada um veio.
@@ -173,8 +207,10 @@ def main() -> None:
         name += "-dirty"  # código diferente do commit: o resultado não é reproduzível
     results_dir = args.output / name
     results_dir.mkdir(parents=True)
-    params = {k: v for k, v in vars(args).items() if k != "output"}
+    params = {k: v for k, v in vars(args).items() if k not in SCRIPT_OPTIONS}
     record = {"params": params, "environment": env}
+    if original is not None:
+        record["reproduces"] = args.params.parent.name
     (results_dir / "params.json").write_text(json.dumps(record, indent=2) + "\n")
     df = run_experiments(args)
     df.to_csv(results_dir / "results.csv", index=False)
