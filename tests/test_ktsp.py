@@ -60,3 +60,12 @@ def test_annealing_with_single_delivery():
     table = build_distance_table(generate_instance(3, 3, 1, seed=0))
     steps = list(anneal(table, (1,), AnnealingParams(), random.Random(0)))
     assert len(steps) == 1
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [{"initial_temperature": 0}, {"cooling_rate": 1}, {"max_iterations": -1}],
+)
+def test_invalid_annealing_params_raise(kwargs):
+    with pytest.raises(ValueError):
+        AnnealingParams(**kwargs)

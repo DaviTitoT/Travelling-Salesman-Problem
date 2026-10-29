@@ -29,6 +29,15 @@ class AnnealingParams:
     max_iterations: int = 5000
     min_temperature: float = 1e-3
 
+    def __post_init__(self) -> None:
+        """Rejeita parâmetros que tornariam a busca inválida."""
+        if self.initial_temperature <= 0 or self.min_temperature <= 0:
+            raise ValueError("as temperaturas devem ser positivas")
+        if not 0 < self.cooling_rate < 1:
+            raise ValueError("a taxa de resfriamento deve estar entre 0 e 1")
+        if self.max_iterations < 0:
+            raise ValueError("o máximo de iterações não pode ser negativo")
+
 
 @dataclass(frozen=True)
 class Step:
@@ -103,6 +112,8 @@ def anneal(
         candidate = two_opt_neighbor(current, rng)
         delta = route_cost(candidate, table) - current_cost
         worse = delta > 0
+        # shortcut: math.exp vem da libm do sistema e pode diferir em 1 ulp entre
+        # plataformas; só mudaria a decisão num empate de ~1e-16, sem efeito prático
         accepted = not worse or rng.random() < math.exp(-delta / temperature)
         if accepted:
             current, current_cost = candidate, current_cost + delta
