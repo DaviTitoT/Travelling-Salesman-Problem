@@ -120,12 +120,24 @@ A aplicação web permite ver o Simulated Annealing trabalhando, iteração por 
 
 ### Instalação e execução
 
-É preciso ter o [uv](https://docs.astral.sh/uv/) instalado.
+É preciso ter o [uv](https://docs.astral.sh/uv/) e o Node.js instalados. O
+solver continua em Python; a interface usa React e Vite.
 
 ```bash
-uv sync                                    # instala as dependências
-uv run streamlit run app/streamlit_app.py  # abre a aplicação no navegador
+uv sync
+uv run python app/api.py
 ```
+
+Em outro terminal:
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+Abra o endereço mostrado pelo Vite (normalmente `http://localhost:5173`). O Vite
+encaminha as chamadas `/api` para a API Python em `http://127.0.0.1:8000`.
 
 ### Usando, passo a passo
 
@@ -187,7 +199,8 @@ instance.py  →  distances.py  →  baselines.py  →  annealing.py  →  solut
 | `src/ktsp/solution.py` | Custo de uma ordem e expansão no caminho completo |
 | `src/ktsp/annealing.py` | Simulated Annealing (vizinho 2-opt e resfriamento geométrico) |
 | `src/ktsp/baselines.py` | Vizinho mais próximo e força bruta |
-| `app/streamlit_app.py` | Aplicação que mostra a busca |
+| `app/api.py` | API local que executa o solver Python e entrega os dados à interface |
+| `web/` | Interface React com Vite, mapa, reprodução e gráficos |
 | `experiments/run.py` | Experimentos em lote |
 | `tests/` | Testes automatizados |
 
@@ -204,20 +217,20 @@ A configuração do `ruff` e do `pytest` fica em `pyproject.toml`.
 
 ### Windows: `ImportError: DLL load failed while importing mtrand`
 
-A aplicação não abre, e a mensagem é:
+O script de experimentos (`uv run python experiments/run.py`) para com o erro:
 
 ```
 ImportError: DLL load failed while importing mtrand:
 Uma política de Controlo de Aplicações bloqueou este ficheiro.
 ```
 
-**Causa:** o **Smart App Control** do Windows 11 bloqueia uma DLL do NumPy (`numpy\random\mtrand.*.pyd`). O NumPy é usado pelo pandas, pelo matplotlib e pelo Streamlit. Não é um defeito do projeto.
+**Causa:** o **Smart App Control** do Windows 11 bloqueia uma DLL do NumPy (`numpy\random\mtrand.*.pyd`). O NumPy é usado pelo pandas e pelo matplotlib no script de experimentos. A API e a interface React não usam o NumPy. Não é um defeito do projeto.
 
 **Solução:**
 
 1. Abra **Segurança do Windows → Controlo de aplicações e browser → Definições do Smart App Control**.
 2. Mude a opção para **Desativado**.
-3. Rode a aplicação de novo com `uv run streamlit run app/streamlit_app.py`. Não é preciso reinstalar nada.
+3. Rode de novo `uv run python experiments/run.py`. Não é preciso reinstalar nada.
 
 > Em algumas versões do Windows 11, depois de desligado, o Smart App Control só volta a ser ligado reinstalando o sistema.
 
@@ -233,7 +246,7 @@ A aplicação foi desenvolvida com o **Claude Code**, um assistente de programa�
    - os comandos do projeto e a arquitetura dos módulos;
    - as boas práticas exigidas: estrutura coerente com a modelagem, SOLID, YAGNI e commits atômicos.
 2. **Planejamento.** Antes de qualquer código, o assistente trabalhou em *modo de planejamento*. Ele propôs a modelagem (permutação de W com menores caminhos pré-calculados por Dijkstra), o algoritmo (2-opt com resfriamento geométrico) e a divisão em módulos. As decisões de projeto ficaram com o desenvolvedor, que escolheu:
-   - **Streamlit** como interface, para manter tudo em Python;
+   - **React com Vite** como interface e uma API Python local para manter o solver;
    - um **gerador de cidades sintéticas** em vez de mapas reais;
    - o **uv** como gerenciador de pacotes, com o ambiente `.venv` já criado.
 3. **Implementação.** Com o plano aprovado, o assistente:
@@ -243,7 +256,7 @@ A aplicação foi desenvolvida com o **Claude Code**, um assistente de programa�
 4. **Verificação.** A cada etapa, o assistente rodou:
    - os testes automatizados (`pytest`), que conferem as restrições da rota e se o SA chega ao ótimo da força bruta em uma instância pequena;
    - o lint e a formatação (`ruff`);
-   - a aplicação sem interface gráfica, pelo `AppTest` do Streamlit;
+   - a interface React e a API local;
    - o script de experimentos.
 5. **Documentação.** O assistente escreveu as docstrings e este README, seguindo a estrutura e o tom pedidos pelo desenvolvedor.
 
