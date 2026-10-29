@@ -6,15 +6,18 @@ exato para k pequeno ou a melhor rota achada nas execuções.
 
 Execução: ``uv run python experiments/run.py`` (``--help`` lista os parâmetros).
 Todos os parâmetros têm padrão fixo e são gravados em ``params.json`` junto dos
-resultados; só a coluna ``seconds`` depende da
-máquina.
+resultados, com o commit e as versões do ambiente; só a coluna ``seconds``
+depende da máquina.
 """
 
 import argparse
 import json
 import math
+import platform
 import random
+import subprocess
 import time
+from importlib.metadata import version
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -25,6 +28,8 @@ from ktsp.baselines import MAX_BRUTE_FORCE_K, brute_force, nearest_neighbor
 from ktsp.distances import build_distance_table
 from ktsp.instance import generate_instance
 from ktsp.solution import route_cost
+
+PACKAGES = ("networkx", "pandas", "matplotlib")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -126,6 +131,24 @@ def run_experiments(args: argparse.Namespace) -> pd.DataFrame:
     return df
 
 
+def environment() -> dict:
+    """Versão do código e do ambiente, para rastrear como os resultados nasceram."""
+
+    def git(*command: str) -> str | None:
+        result = subprocess.run(
+            ["git", *command], capture_output=True, text=True, check=False
+        )
+        return result.stdout.strip() if result.returncode == 0 else None
+
+    status = git("status", "--porcelain")
+    return {
+        "commit": git("rev-parse", "HEAD"),
+        "uncommitted_changes": bool(status) if status is not None else None,
+        "python": platform.python_version(),
+        "packages": {name: version(name) for name in PACKAGES},
+    }
+
+
 def plot_by_k(df: pd.DataFrame, column: str, ylabel: str, path: Path) -> None:
     """Gráfico de barras da média de ``column`` por k, uma barra por α."""
     means = df.pivot_table(index="k", columns="alpha", values=column, aggfunc="mean")
@@ -143,7 +166,8 @@ def main() -> None:
     results_dir = args.output
     results_dir.mkdir(parents=True, exist_ok=True)
     params = {k: v for k, v in vars(args).items() if k != "output"}
-    (results_dir / "params.json").write_text(json.dumps(params, indent=2) + "\n")
+    record = {"params": params, "environment": environment()}
+    (results_dir / "params.json").write_text(json.dumps(record, indent=2) + "\n")
     df = run_experiments(args)
     df.to_csv(results_dir / "results.csv", index=False)
 
