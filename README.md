@@ -132,6 +132,20 @@ O passo 3 é o centro do algoritmo:
 | Resfriamento α | Mais perto de 1 resfria mais devagar e mantém a exploração por mais tempo | 0,995 |
 | Orçamento (iterações) | Quantidade de vizinhos avaliados em cada execução | 5000 |
 
+### Modo híbrido SA + Tabu (opcional)
+
+O algoritmo do projeto é o Simulated Annealing. O modo híbrido existe só para comparação e fica desligado por padrão.
+
+Quando a busca se aproxima de um ótimo local e a temperatura já está baixa, o SA passa a sortear repetidamente os mesmos vizinhos e rejeitá-los. Em execuções medidas, cerca de 85% dos vizinhos avaliados já tinham sido avaliados antes. O modo híbrido acrescenta uma **lista tabu** com os últimos movimentos 2-opt sorteados (os pares de posições invertidas):
+
+- um movimento que está na lista **não é avaliado** e não gasta orçamento: outro é sorteado no lugar;
+- todo movimento avaliado entra na lista e sai dela depois de L novos movimentos, em que L é o tamanho da lista;
+- o restante do algoritmo (regra de aceitação, resfriamento, orçamento) é o mesmo do SA.
+
+A lista guarda posições, não rotas: depois que um movimento é aceito, as mesmas posições passam a gerar outro vizinho. É uma simplificação comum da Tabu Search, que evita desfazer imediatamente um movimento e reavaliar o mesmo vizinho enquanto a solução atual não muda.
+
+Na aplicação, o seletor **Modo de busca** escolhe entre *SA puro* e *SA + Tabu* e, no segundo caso, mostra o tamanho da lista. Para comparar, rode a mesma cidade com as mesmas sementes nos dois modos.
+
 ### Como saber se a rota é boa?
 
 O resultado do Simulated Annealing é comparado com duas referências:
@@ -210,6 +224,7 @@ uv run ktsp --help                            # lista os parâmetros e os padrõ
 | `--t0` | Temperatura inicial | 100 |
 | `--alpha` | Taxa de resfriamento | 0,995 |
 | `--iterations` | Orçamento: vizinhos avaliados (a execução sempre gasta todos) | 5000 |
+| `--tabu-tenure` | Tamanho da lista tabu do modo híbrido; 0 é o SA puro | 0 |
 
 A saída mostra a distância do vizinho mais próximo, o ótimo (para k ≤ 8), a distância do SA, a ordem de visita e o caminho completo. A primeira linha é o comando completo, com todos os parâmetros, para repetir aquela execução.
 
