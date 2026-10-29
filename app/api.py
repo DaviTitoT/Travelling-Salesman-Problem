@@ -1,4 +1,10 @@
-"""API HTTP simples para a interface React do k-TSP."""
+"""API HTTP simples para a interface React do k-TSP.
+
+O mapa da interface (Leaflet) recebe posições em ``[lat, lng]``: no bairro real
+são latitude e longitude; a grade sintética, sem geografia, é desenhada num
+plano com ``[y, x]``. Rotas e arestas vão como números de vértice, e
+``positions[v]`` dá a posição do vértice ``v``.
+"""
 
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -7,19 +13,35 @@ from ktsp import pipeline
 from ktsp.annealing import AnnealingParams
 from ktsp.baselines import MAX_BRUTE_FORCE_K, brute_force
 from ktsp.solution import Route, route_cost
+from ktsp.street_map import load_street_map
 
 DEFAULT_PARAMS = AnnealingParams()
+MAX_K = 40
 
 
-def _path_positions(
-    path: tuple[int, ...], positions: dict[int, list[int]]
-) -> list[list[int]]:
-    """Converte os vértices do caminho em coordenadas para o mapa."""
-    return [positions[node] for node in path]
+def _city_layer(city: str) -> dict:
+    """Nome, unidade e contorno da cidade, para o mapa e os rótulos."""
+    if city == "grid":
+        return {
+            "cityName": "Grade sintética",
+            "geographic": False,
+            "unit": "unidades",
+            "boundary": [],
+            "attribution": "",
+        }
+    street_map = load_street_map()
+    return {
+        "cityName": street_map.name,
+        "geographic": True,
+        "unit": "m",
+        "boundary": [[lat, lon] for lon, lat in street_map.boundary],
+        "attribution": street_map.attribution,
+    }
 
 
 def solve(payload: dict) -> dict:
     """Gera a instância, executa o SA e serializa os dados da visualização."""
+    city = str(payload.get("city", pipeline.DEFAULT_CITY))
     size = int(payload.get("size", pipeline.DEFAULT_SIZE))
     k = int(payload.get("k", pipeline.DEFAULT_K))
     seed = int(payload.get("seed", pipeline.DEFAULT_SEED))
@@ -30,10 +52,13 @@ def solve(payload: dict) -> dict:
     cooling_rate = float(payload.get("coolingRate", DEFAULT_PARAMS.cooling_rate))
     max_iterations = int(payload.get("maxIterations", DEFAULT_PARAMS.max_iterations))
     tabu_tenure = int(payload.get("tabuTenure", DEFAULT_PARAMS.tabu_tenure))
-    if not 4 <= size <= 25:
+    if city not in pipeline.CITIES:
+        raise ValueError("Cidade desconhecida.")
+    if city == "grid" and not 4 <= size <= 25:
         raise ValueError("O tamanho da grade deve estar entre 4 e 25.")
-    if not 1 <= k <= min(40, size * size - 1):
-        raise ValueError("A quantidade de entregas não é válida para esta grade.")
+    max_k = min(MAX_K, size * size - 1) if city == "grid" else MAX_K
+    if not 1 <= k <= max_k:
+        raise ValueError("A quantidade de entregas não é válida para esta cidade.")
     if initial_temperature <= 0 or not 0.9 <= cooling_rate <= 0.9999:
         raise ValueError("Confira a temperatura inicial e a taxa de resfriamento.")
     if not 10 <= max_iterations <= 200000:
@@ -44,12 +69,14 @@ def solve(payload: dict) -> dict:
     params = AnnealingParams(
         initial_temperature, cooling_rate, max_iterations, tabu_tenure
     )
-    run = pipeline.solve(size, k, seed, sa_seed, params)
+    run = pipeline.solve(size, k, seed, sa_seed, params, city)
     instance, table, initial, steps = run.instance, run.table, run.initial, run.steps
     optimum = brute_force(table) if k <= MAX_BRUTE_FORCE_K else None
-    positions = {
-        node: [column, row] for node, (row, column) in instance.graph.nodes(data="pos")
-    }
+    graph = instance.graph
+    positions = [  # pos é (x, y): longitude e latitude no bairro real
+        [graph.nodes[v]["pos"][1], graph.nodes[v]["pos"][0]]
+        for v in range(graph.number_of_nodes())
+    ]
 
     # Limita a resposta ao navegador, mantendo início, fim e evolução visível.
     stride = max(1, len(steps) // 700)
@@ -60,14 +87,16 @@ def solve(payload: dict) -> dict:
     best = Route.from_order(steps[-1].best_order, table)
     current = Route.from_order(steps[-1].current_order, table)
     result = {
+        "city": city,
+        **_city_layer(city),
         "size": size,
         "seed": seed,
         "saSeed": sa_seed,
         "tabuTenure": tabu_tenure,
         "k": k,
-        "base": positions[instance.base],
-        "deliveries": [positions[node] for node in instance.deliveries],
-        "edges": [[positions[u], positions[v]] for u, v in instance.graph.edges],
+        "base": instance.base,
+        "deliveries": list(instance.deliveries),
+        "edges": [[u, v] for u, v in graph.edges],
         "positions": positions,
         "steps": [
             {
@@ -75,19 +104,14 @@ def solve(payload: dict) -> dict:
                 "temperature": step.temperature,
                 "currentCost": step.current_cost,
                 "bestCost": step.best_cost,
-                "currentPath": _path_positions(
-                    Route.from_order(step.current_order, table).path, positions
-                ),
-                "bestPath": _path_positions(
-                    Route.from_order(step.best_order, table).path, positions
-                ),
+                "currentPath": list(Route.from_order(step.current_order, table).path),
+                "bestPath": list(Route.from_order(step.best_order, table).path),
                 "bestOrder": list(step.best_order),
             }
             for step in sampled
         ],
         "initialCost": route_cost(initial, table),
         "bestCost": best.cost,
-        "bestPath": _path_positions(best.path, positions),
         "bestVisits": list(best.visits),
         "bestVertexPath": list(best.path),
         "currentCost": current.cost,

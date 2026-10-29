@@ -11,6 +11,7 @@ from ktsp.distances import build_distance_table
 from ktsp.instance import generate_instance
 from ktsp.pipeline import solve
 from ktsp.solution import Route
+from ktsp.street_map import load_street_map
 
 
 @pytest.fixture
@@ -82,6 +83,44 @@ def test_default_run_matches_reference_values():
     assert len(run.instance.graph.edges) == 189
     assert (last.iteration, last.best_cost) == (5000, 273)
     assert last.best_order == (1, 5, 8, 3, 4, 2, 6, 10, 9, 7)
+
+
+def test_street_map_is_valid():
+    street_map = load_street_map()
+    graph = street_map.graph
+    assert nx.is_connected(graph)
+    assert all(weight >= 1 for *_, weight in graph.edges(data="weight"))
+    assert all(  # todos os vértices ficam em Alegrete-RS
+        -55.79 < lon < -55.76 and -29.80 < lat < -29.77
+        for _, (lon, lat) in graph.nodes(data="pos")
+    )
+    assert street_map.boundary[0] == street_map.boundary[-1]
+
+
+def test_route_on_street_map_satisfies_constraints():
+    run = solve(city="ibirapuita", k=7)
+    graph = run.instance.graph
+    route = Route.from_order(run.steps[-1].best_order, run.table)
+    assert sorted(route.visits) == sorted(run.instance.deliveries)
+    assert route.path[0] == route.path[-1] == run.instance.base
+    assert all(graph.has_edge(u, v) for u, v in pairwise(route.path))
+    walked = sum(graph.edges[u, v]["weight"] for u, v in pairwise(route.path))
+    assert walked == route.cost
+
+
+def test_street_map_run_matches_reference_values():
+    # Como na grade: se mudar, o arquivo do mapa ou o sorteio deixou de ser o mesmo.
+    run = solve(city="ibirapuita")
+    last = run.steps[-1]
+    assert run.instance.base == 81
+    assert run.instance.deliveries == (14, 3, 94, 35, 31, 28, 17, 13, 86, 114)
+    assert (last.iteration, last.best_cost) == (5000, 3696)
+    assert last.best_order == (9, 5, 10, 2, 1, 7, 3, 4, 8, 6)
+
+
+def test_unknown_city_raises():
+    with pytest.raises(ValueError):
+        solve(city="atlantida")
 
 
 def test_sa_seed_is_independent_from_city_seed():

@@ -11,6 +11,8 @@ from collections.abc import Sequence
 from ktsp.annealing import AnnealingParams
 from ktsp.baselines import MAX_BRUTE_FORCE_K, brute_force
 from ktsp.pipeline import (
+    CITIES,
+    DEFAULT_CITY,
     DEFAULT_K,
     DEFAULT_SA_SEED,
     DEFAULT_SEED,
@@ -29,7 +31,15 @@ def build_parser() -> argparse.ArgumentParser:
         description="k-TSP do entregador de moto resolvido com Simulated Annealing.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--size", type=int, default=DEFAULT_SIZE, help="lado da grade")
+    parser.add_argument(
+        "--city",
+        choices=CITIES,
+        default=DEFAULT_CITY,
+        help="cidade: grade sintética ou o bairro Ibirapuitã (mapa real, em metros)",
+    )
+    parser.add_argument(
+        "--size", type=int, default=DEFAULT_SIZE, help="lado da grade (só na grade)"
+    )
     parser.add_argument("--k", type=int, default=DEFAULT_K, help="pontos de entrega")
     parser.add_argument(
         "--seed", type=int, default=DEFAULT_SEED, help="semente da cidade"
@@ -70,7 +80,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = parser.parse_args(argv)
     try:
         params = AnnealingParams(args.t0, args.alpha, args.iterations, args.tabu_tenure)
-        run = solve(args.size, args.k, args.seed, args.sa_seed, params)
+        run = solve(args.size, args.k, args.seed, args.sa_seed, params, args.city)
     except ValueError as error:
         parser.error(str(error))
 

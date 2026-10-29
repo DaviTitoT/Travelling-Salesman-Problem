@@ -88,14 +88,24 @@ Assim a busca fica rápida, e a rota final usa apenas ruas que existem. Como o g
 
 ### Instâncias de teste
 
-As cidades são geradas sinteticamente:
+Há dois tipos de cidade. Nos dois, a base e os k pontos de entrega são sorteados entre os vértices, e tudo depende de uma **semente**: a mesma semente gera sempre a mesma instância, o que permite reproduzir experimentos.
+
+**Grade sintética** (padrão da CLI e dos experimentos):
 
 1. parte-se de uma **grade n × n** de esquinas;
 2. cada rua recebe uma distância inteira aleatória entre 1 e 10;
-3. cerca de **30% das ruas são removidas**, mas uma rua só sai se a cidade continuar conexa;
-4. a base e os k pontos de entrega são sorteados entre os vértices.
+3. cerca de **30% das ruas são removidas**, mas uma rua só sai se a cidade continuar conexa.
 
-Tudo depende de uma **semente**. A mesma semente gera sempre a mesma cidade, o que permite reproduzir experimentos.
+**Mapa real: o bairro Ibirapuitã, em Alegrete-RS.** As ruas vêm do [OpenStreetMap](https://www.openstreetmap.org/relation/7981845):
+
+1. o script `scripts/download_street_map.py` baixa o limite oficial do bairro e as ruas por onde passa uma moto. Calçadas, trilhas e acessos de estacionamento ficam de fora;
+2. o grafo é recortado pelo limite do bairro, mas as ruas que formam a divisa são mantidas;
+3. vértices que só dividem uma rua reta, sem ser esquina, são removidos, e os comprimentos dos trechos são somados;
+4. o peso de cada aresta é o comprimento da rua em **metros**.
+
+O resultado tem **127 vértices e 160 arestas** (cerca de 8,8 km de ruas) e fica em `src/ktsp/data/ibirapuita.json`, versionado. Assim as instâncias não dependem de internet nem mudam quando alguém edita o OpenStreetMap. No mapa real, a semente da cidade sorteia só a base e as entregas. O sentido das ruas (mão única) é ignorado, porque o modelo do enunciado é um grafo não direcionado.
+
+Dados do mapa © colaboradores do OpenStreetMap, sob a licença [ODbL](https://www.openstreetmap.org/copyright).
 
 ## 4. Simulated Annealing
 
@@ -182,14 +192,17 @@ encaminha as chamadas `/api` para a API Python em `http://127.0.0.1:8000`.
 
 ### Usando, passo a passo
 
-1. **Monte a cidade** na barra lateral. Escolha a **semente da cidade**, a **semente do SA**, o **tamanho da grade** e o **número de entregas k**.
+1. **Monte a cidade** na barra lateral. Escolha a **cidade** (o bairro Ibirapuitã, que é o padrão da interface, ou a grade sintética), a **semente da cidade**, a **semente do SA** e o **número de entregas k**. Na grade sintética, escolha também o **tamanho da grade**.
 2. **Ajuste o algoritmo:** temperatura inicial **T0**, resfriamento **α** e **máximo de iterações**.
 3. Clique em **Executar**. Com *Animar a execução* marcado, o mapa mostra a rota mudando ao longo da busca.
 4. **Leia o mapa:**
    - **B** (vermelho) é a base;
    - os pontos laranja são as entregas, numeradas na ordem de visita;
    - a linha **azul** é a melhor rota encontrada até aquela iteração;
-   - a linha **cinza tracejada** é a rota corrente, que o algoritmo está explorando.
+   - a linha **cinza tracejada** é a rota corrente, que o algoritmo está explorando;
+   - no mapa real, o **tracejado vermelho** é o limite do bairro, e as distâncias estão em metros.
+
+   O mapa (feito com [Leaflet](https://leafletjs.com/)) aceita zoom e arrastar. Passar o mouse sobre um ponto mostra o número do vértice, o mesmo que aparece no caminho completo. O bairro real aparece sobre os tiles do OpenStreetMap, então essa parte precisa de internet.
 5. **Volte no tempo** com o slider *Iteração* para ver o estado da busca em qualquer momento.
 6. **Acompanhe os gráficos:**
    - **Custo:** a distância da rota corrente oscila no começo (exploração) e se estabiliza no fim. A melhor distância só diminui.
@@ -212,14 +225,16 @@ encaminha as chamadas `/api` para a API Python em `http://127.0.0.1:8000`.
 ```bash
 uv run ktsp                                   # todos os parâmetros com o valor padrão
 uv run ktsp --size 15 --k 8 --seed 7 --sa-seed 3 --t0 50 --alpha 0.999
+uv run ktsp --city ibirapuita --k 8           # no bairro real (distâncias em metros)
 uv run ktsp --help                            # lista os parâmetros e os padrões
 ```
 
 | Parâmetro | Significado | Padrão |
 | --- | --- | --- |
-| `--size` | Lado da grade (a cidade tem size × size esquinas) | 12 |
+| `--city` | Cidade: `grid` (grade sintética) ou `ibirapuita` (bairro real) | `grid` |
+| `--size` | Lado da grade (a cidade tem size × size esquinas); ignorado no bairro real | 12 |
 | `--k` | Número de pontos de entrega | 10 |
-| `--seed` | Semente da cidade: ruas, distâncias, base e entregas | 42 |
+| `--seed` | Semente da cidade: ruas, distâncias, base e entregas (no bairro real, só base e entregas) | 42 |
 | `--sa-seed` | Semente das escolhas aleatórias do Simulated Annealing | 0 |
 | `--t0` | Temperatura inicial | 100 |
 | `--alpha` | Taxa de resfriamento | 0,995 |
@@ -306,16 +321,20 @@ instance.py  →  distances.py  →  baselines.py  →  annealing.py  →  solut
 
 | Caminho | Conteúdo |
 | --- | --- |
-| `src/ktsp/instance.py` | Instância (grafo, base, W) e gerador de cidades sintéticas |
+| `src/ktsp/instance.py` | Instância (grafo, base, W), sorteio dos pontos e gerador de cidades sintéticas |
+| `src/ktsp/street_map.py` | Leitura do mapa real (grafo de ruas e contorno do bairro) |
+| `src/ktsp/data/ibirapuita.json` | Mapa real do bairro Ibirapuitã, já baixado do OpenStreetMap |
 | `src/ktsp/distances.py` | Menores caminhos (Dijkstra) entre a base e os pontos de entrega |
 | `src/ktsp/solution.py` | Custo de uma ordem e expansão no caminho completo |
 | `src/ktsp/annealing.py` | Simulated Annealing (vizinho 2-opt e resfriamento geométrico) |
 | `src/ktsp/baselines.py` | Vizinho mais próximo e força bruta |
-| `src/ktsp/pipeline.py` | Execução completa (cidade + SA) a partir das sementes, usada pela CLI e pela API |
+| `src/ktsp/pipeline.py` | Execução completa (cidade escolhida + SA) a partir das sementes, usada pela CLI e pela API |
 | `src/ktsp/cli.py` | Linha de comando `ktsp` |
 | `app/api.py` | API local que executa o solver Python e entrega os dados à interface |
-| `web/` | Interface React com Vite, mapa, reprodução e gráficos |
+| `web/` | Interface React com Vite, reprodução e gráficos |
+| `web/src/RouteMap.jsx` | Mapa interativo (Leaflet) com ruas, rotas e pontos de entrega |
 | `experiments/run.py` | Experimentos em lote |
+| `scripts/download_street_map.py` | Baixa o bairro do OpenStreetMap e gera `src/ktsp/data/ibirapuita.json` |
 | `tests/` | Testes automatizados |
 
 ### Desenvolvimento
@@ -373,5 +392,6 @@ A aplicação foi desenvolvida com o **Claude Code**, um assistente de programa�
    - a interface React e a API local;
    - o script de experimentos.
 5. **Documentação.** O assistente escreveu as docstrings e este README, seguindo a estrutura e o tom pedidos pelo desenvolvedor.
+6. **Mapa real.** Depois, a pedido do desenvolvedor, o assistente acrescentou o bairro Ibirapuitã (Alegrete-RS) como cidade real. Ele escreveu o script que baixa o bairro do OpenStreetMap, o módulo `street_map.py`, a opção de cidade no pipeline, na CLI e na API, e o mapa interativo com Leaflet na interface. Conferiu que as instâncias da grade continuaram idênticas (teste de valores de referência), adicionou testes para o mapa real e para a API, e verificou a interface nas duas cidades com capturas de tela.
 
 O desenvolvedor é o autor do projeto. A IA acelerou a escrita do código e da documentação, mas a modelagem, as escolhas de projeto e a aprovação de cada etapa ficaram com o desenvolvedor.
