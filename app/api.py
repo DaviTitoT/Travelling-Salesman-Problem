@@ -29,6 +29,7 @@ def solve(payload: dict) -> dict:
     )
     cooling_rate = float(payload.get("coolingRate", DEFAULT_PARAMS.cooling_rate))
     max_iterations = int(payload.get("maxIterations", DEFAULT_PARAMS.max_iterations))
+    tabu_tenure = int(payload.get("tabuTenure", DEFAULT_PARAMS.tabu_tenure))
     if not 4 <= size <= 25:
         raise ValueError("O tamanho da grade deve estar entre 4 e 25.")
     if not 1 <= k <= min(40, size * size - 1):
@@ -37,8 +38,12 @@ def solve(payload: dict) -> dict:
         raise ValueError("Confira a temperatura inicial e a taxa de resfriamento.")
     if not 10 <= max_iterations <= 200000:
         raise ValueError("O máximo de iterações deve estar entre 10 e 200.000.")
+    if not 0 <= tabu_tenure <= 100:
+        raise ValueError("A lista tabu deve ter entre 0 e 100 movimentos.")
 
-    params = AnnealingParams(initial_temperature, cooling_rate, max_iterations)
+    params = AnnealingParams(
+        initial_temperature, cooling_rate, max_iterations, tabu_tenure
+    )
     run = pipeline.solve(size, k, seed, sa_seed, params)
     instance, table, initial, steps = run.instance, run.table, run.initial, run.steps
     optimum = brute_force(table) if k <= MAX_BRUTE_FORCE_K else None
@@ -58,6 +63,7 @@ def solve(payload: dict) -> dict:
         "size": size,
         "seed": seed,
         "saSeed": sa_seed,
+        "tabuTenure": tabu_tenure,
         "k": k,
         "base": positions[instance.base],
         "deliveries": [positions[node] for node in instance.deliveries],

@@ -55,6 +55,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_PARAMS.max_iterations,
         help="orçamento: vizinhos avaliados",
     )
+    parser.add_argument(
+        "--tabu-tenure",
+        type=int,
+        default=DEFAULT_PARAMS.tabu_tenure,
+        help="tamanho da lista tabu do modo híbrido (0 = SA puro)",
+    )
     return parser
 
 
@@ -63,7 +69,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        params = AnnealingParams(args.t0, args.alpha, args.iterations)
+        params = AnnealingParams(args.t0, args.alpha, args.iterations, args.tabu_tenure)
         run = solve(args.size, args.k, args.seed, args.sa_seed, params)
     except ValueError as error:
         parser.error(str(error))
