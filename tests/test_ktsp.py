@@ -6,8 +6,10 @@ import pytest
 
 from ktsp.annealing import AnnealingParams, anneal
 from ktsp.baselines import brute_force, nearest_neighbor
+from ktsp.cli import main
 from ktsp.distances import build_distance_table
 from ktsp.instance import generate_instance
+from ktsp.pipeline import solve
 from ktsp.solution import Route
 
 
@@ -60,3 +62,81 @@ def test_annealing_with_single_delivery():
     table = build_distance_table(generate_instance(3, 3, 1, seed=0))
     steps = list(anneal(table, (1,), AnnealingParams(), random.Random(0)))
     assert len(steps) == 1
+
+
+def test_same_parameters_give_identical_runs():
+    a, b = solve(), solve()
+    assert a.steps == b.steps
+    assert sorted(a.instance.graph.edges(data="weight")) == sorted(
+        b.instance.graph.edges(data="weight")
+    )
+
+
+def test_default_run_matches_reference_values():
+    # Valores gravados em Python 3.12; se mudarem, os resultados deixaram de ser
+    # reproduzíveis entre máquinas (versão do Python, networkx ou do algoritmo).
+    run = solve()
+    last = run.steps[-1]
+    assert run.instance.base == 43
+    assert run.instance.deliveries == (21, 72, 131, 85, 23, 60, 79, 57, 50, 37)
+    assert len(run.instance.graph.edges) == 189
+    assert (last.iteration, last.best_cost) == (5000, 273)
+    assert last.best_order == (1, 5, 8, 3, 4, 2, 6, 10, 9, 7)
+
+
+def test_sa_seed_is_independent_from_city_seed():
+    a, b = solve(sa_seed=0), solve(sa_seed=1)
+    assert a.instance.deliveries == b.instance.deliveries
+    assert a.steps != b.steps
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [{"initial_temperature": 0}, {"cooling_rate": 1}, {"max_iterations": -1}],
+)
+def test_invalid_annealing_params_raise(kwargs):
+    with pytest.raises(ValueError):
+        AnnealingParams(**kwargs)
+
+
+def test_cli_prints_reproducible_command(capsys):
+    main(["--k", "4", "--seed", "7"])
+    first = capsys.readouterr().out
+    main(["--k", "4", "--seed", "7"])
+    assert capsys.readouterr().out == first
+    assert "--sa-seed 0" in first and "Distância total (SA)" in first
+
+
+@pytest.mark.parametrize("alpha", [0.5, 0.99, 0.999])
+def test_annealing_spends_the_whole_budget(table, alpha):
+    # alpha = 0.5 leva T a 0 por underflow; a busca deve continuar sem erro
+    params = AnnealingParams(cooling_rate=alpha, max_iterations=3000)
+    steps = list(anneal(table, nearest_neighbor(table), params, random.Random(0)))
+    assert steps[-1].iteration == 3000
+
+
+def test_tabu_hybrid_spends_budget_and_keeps_routes_valid(instance, table):
+    params = AnnealingParams(max_iterations=2000, tabu_tenure=10)
+    steps = list(anneal(table, nearest_neighbor(table), params, random.Random(0)))
+    assert steps[-1].iteration == 2000
+    route = Route.from_order(steps[-1].best_order, table)
+    assert sorted(route.visits) == sorted(instance.deliveries)
+    assert all(a.best_cost >= b.best_cost for a, b in pairwise(steps))
+
+
+def test_tabu_tenure_larger_than_neighborhood_still_terminates():
+    table = build_distance_table(generate_instance(3, 3, 3, seed=0))
+    params = AnnealingParams(max_iterations=50, tabu_tenure=100)
+    steps = list(anneal(table, (1, 2, 3), params, random.Random(0)))
+    assert steps[-1].iteration == 50
+
+
+def test_tabu_hybrid_differs_from_plain_sa(table):
+    plain = list(
+        anneal(table, nearest_neighbor(table), AnnealingParams(), random.Random(0))
+    )
+    hybrid_params = AnnealingParams(tabu_tenure=10)
+    hybrid = list(
+        anneal(table, nearest_neighbor(table), hybrid_params, random.Random(0))
+    )
+    assert plain != hybrid

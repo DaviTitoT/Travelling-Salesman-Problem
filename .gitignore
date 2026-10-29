@@ -176,3 +176,4 @@ pyrightconfig.json
 # End of https://www.toptal.com/developers/gitignore/api/python
 web/node_modules/
 web/dist/
+experiments/results/

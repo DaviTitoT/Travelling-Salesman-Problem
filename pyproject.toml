@@ -3,12 +3,16 @@ name = "ktsp"
 version = "0.1.0"
 description = "k-TSP do entregador de moto resolvido com Simulated Annealing"
 readme = "README.md"
-requires-python = ">=3.12"
+# Fixo em 3.12: o módulo random só garante a mesma sequência na mesma versão.
+requires-python = "==3.12.*"
 dependencies = [
     "matplotlib>=3.11.2",
     "networkx>=3.7",
     "pandas>=3.0.6",
 ]
+
+[project.scripts]
+ktsp = "ktsp.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.11.7,<0.12"]
