@@ -81,7 +81,7 @@ export default function App() {
         <div className="group-label algorithm-label">Simulated Annealing</div>
         <Field label="Temperatura inicial" value={params.initialTemperature} onChange={set('initialTemperature')} min={1} max={300} step={1}/>
         <Field label="Resfriamento α" value={params.coolingRate} onChange={set('coolingRate')} min={0.9} max={0.9999} step={0.0001}/>
-        <label className="number-field">Máximo de iterações <input type="number" min="10" max="200000" step="500" value={params.maxIterations} onChange={(e) => set('maxIterations')(Number(e.target.value))}/></label>
+        <label className="number-field">Orçamento (iterações) <input type="number" min="10" max="200000" step="500" value={params.maxIterations} onChange={(e) => set('maxIterations')(Number(e.target.value))}/></label>
       </div>
       <button className="run-button" onClick={run} disabled={busy}><Play size={16} fill="currentColor"/>{busy ? 'Calculando rota…' : 'Executar algoritmo'}</button>
       <div className="sidebar-foot"><span className="status-dot"/> Algoritmo pronto para executar</div>
