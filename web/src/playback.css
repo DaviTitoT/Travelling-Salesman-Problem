@@ -1,0 +1,36 @@
+fieldset.side-section { border: 0; margin: 0; padding-left: 0; padding-right: 0; min-width: 0; }
+.map-wrap { position: relative; z-index: 0; }
+.leaflet-map .stop-selected { background: #fff; border: 3px dashed #e97542; color: #d96737; }
+.comparison-title { flex-wrap: wrap; gap: 5px; }
+.execution-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  margin-bottom: 18px;
+  background: #fff4ec;
+  border: 1px solid #f4dccc;
+  border-radius: 12px;
+  color: #a8542e;
+  font-size: 12px;
+}
+.execution-banner strong, .execution-banner span { display: block; }
+.execution-banner span { margin-top: 4px; font-size: 11px; }
+.execution-banner > b { margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.playback-meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 12px; color: #66717e; font-size: 11px; font-variant-numeric: tabular-nums; }
+.playback-meta > span { display: flex; align-items: center; gap: 5px; }
+.timeline .timeline-actions { flex-wrap: wrap; gap: 6px; }
+.timeline-actions button { display: inline-flex; align-items: center; justify-content: center; min-height: 32px; min-width: 30px; }
+.timeline-actions .animate-button { background: #fff0e7; border-color: #f5d6c4; color: #a94f25; min-width: 95px; }
+.timeline-actions button:hover:not(:disabled) { background: #fff4ed; border-color: #e9a784; }
+button:disabled { cursor: default; opacity: .45; }
+.speed-control { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 10px; color: #68727f; }
+.speed-control select { font: inherit; font-size: 11px; padding: 6px; border: 1px solid #e1e6ec; border-radius: 7px; background: #fafbfc; color: #37414d; }
+.playback-note { color: #7c8794; font-size: 10px; line-height: 1.6; margin: 12px 0 0; }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid #397bc5 !important; outline-offset: 3px; }
+.live-pill { text-align: center; flex-shrink: 0; }
+@media (max-width: 480px) {
+  .speed-control { width: 100%; margin: 5px 0 0; justify-content: space-between; }
+  .card-head { gap: 8px; }
+  .live-pill { font-size: 7px; padding: 6px; }
+}

@@ -1,5 +1,6 @@
 """Soluções de referência para comparar com o Simulated Annealing."""
 
+import random
 from itertools import permutations
 
 from ktsp.distances import DistanceTable
@@ -27,6 +28,19 @@ def nearest_neighbor(table: DistanceTable) -> Order:
         order.append(current)
         remaining.remove(current)
     return tuple(order)
+
+
+def random_order(table: DistanceTable, rng: random.Random) -> Order:
+    """Gera uma ordem aleatória dos pontos de entrega.
+
+    Args:
+        table: Tabela de distâncias mínimas.
+        rng: Gerador de números aleatórios.
+
+    Returns:
+        Permutação aleatória dos índices ``1..k``.
+    """
+    return tuple(rng.sample(range(1, table.k + 1), table.k))
 
 
 def brute_force(table: DistanceTable) -> Order:

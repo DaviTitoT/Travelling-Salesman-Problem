@@ -194,7 +194,7 @@ encaminha as chamadas `/api` para a API Python em `http://127.0.0.1:8000`.
 
 1. **Monte a cidade** na barra lateral. Escolha a **cidade** (o bairro Ibirapuitã, que é o padrão da interface, ou a grade sintética), a **semente da cidade**, a **semente do SA** e o **número de entregas k**. Na grade sintética, escolha também o **tamanho da grade**.
 2. **Ajuste o algoritmo:** temperatura inicial **T0**, resfriamento **α** e **máximo de iterações**.
-3. Clique em **Executar**. Com *Animar a execução* marcado, o mapa mostra a rota mudando ao longo da busca.
+3. Clique em **Executar algoritmo**. Um cronômetro acompanha a espera pela API. Ao receber o resultado, a reprodução começa automaticamente e dura cerca de 20 segundos na velocidade 1× (exceto quando só há um passo).
 4. **Leia o mapa:**
    - **B** (vermelho) é a base;
    - os pontos laranja são as entregas, numeradas na ordem de visita;
@@ -203,15 +203,28 @@ encaminha as chamadas `/api` para a API Python em `http://127.0.0.1:8000`.
    - no mapa real, o **tracejado vermelho** é o limite do bairro, e as distâncias estão em metros.
 
    O mapa (feito com [Leaflet](https://leafletjs.com/)) aceita zoom e arrastar. Passar o mouse sobre um ponto mostra o número do vértice, o mesmo que aparece no caminho completo. O bairro real aparece sobre os tiles do OpenStreetMap, então essa parte precisa de internet.
-5. **Volte no tempo** com o slider *Iteração* para ver o estado da busca em qualquer momento.
+5. Use **Pausar / Continuar**, volte ao início, avance por passos ou salte para o resultado final. A velocidade varia de **0,25× a 4×**. Mover o slider *Iteração* pausa a reprodução. O relógio da reprodução representa a posição no histórico, não o tempo de cálculo; esses controles não alteram o algoritmo. A API envia uma amostra do histórico, portanto um passo visual pode abranger várias iterações.
 6. **Acompanhe os gráficos:**
    - **Custo:** a distância da rota corrente oscila no começo (exploração) e se estabiliza no fim. A melhor distância só diminui.
    - **Temperatura:** decai de forma geométrica.
-   - **Taxa de aceitação de pioras:** começa alta e cai junto com a temperatura. É a passagem da exploração para o refinamento.
-7. **Compare** o resultado com o vizinho mais próximo e, para k ≤ 8, com o ótimo.
+   - Os gráficos e os indicadores de melhor custo e melhoria acompanham o passo selecionado. O resultado final permanece disponível na seção **Rota sugerida**.
+7. **Compare as bases** na seção correspondente. Uma rota usa a base escolhida no mapa; a outra usa uma base aleatória. Ambas mantêm as mesmas entregas e os mesmos parâmetros do algoritmo. A semente da base aleatória aparece na comparação para permitir reproduzi-la.
 8. **Veja a resposta final:** a ordem de visita, o caminho completo vértice a vértice e a distância total.
 
 ### Sugestões de experimentos na aplicação
+
+Para escolher a base, clique em um cruzamento do mapa ou use **Vértice da base**.
+O marcador **E** indica a escolha pendente; **B** indica a base da rota exibida.
+Clique em **Recalcular com nova base** para atualizar a comparação e a reprodução.
+A comparação entre base escolhida e aleatória funciona tanto no bairro real
+(metros) quanto na grade (unidades). Mudar cidade, semente ou tamanho limpa a
+seleção anterior para não reutilizar um vértice de outra cidade.
+
+Na pasta `web`, valide com `npm test`, `npm run build` e `npm run test:e2e`
+(instale o navegador uma vez com `npx playwright install chromium`). Os testes
+de navegador usam respostas controladas. Para incluir o cenário com a API Python
+real na porta 8000, no PowerShell rode `$env:KTSP_REAL_API='1'; npm run test:e2e`.
+Ele verifica o mapa real, a escolha de base, as comparações e a troca para a grade.
 
 - **T0 muito baixa** (por exemplo, 0,1): o algoritmo quase não aceita pioras e tende a parar no primeiro mínimo local.
 - **α = 0,9 contra α = 0,999:** com o mesmo orçamento, resfriar rápido vira busca local cedo; resfriar devagar explora por mais tempo e costuma achar rotas mais curtas.
@@ -226,6 +239,7 @@ encaminha as chamadas `/api` para a API Python em `http://127.0.0.1:8000`.
 uv run ktsp                                   # todos os parâmetros com o valor padrão
 uv run ktsp --size 15 --k 8 --seed 7 --sa-seed 3 --t0 50 --alpha 0.999
 uv run ktsp --city ibirapuita --k 8           # no bairro real (distâncias em metros)
+uv run ktsp --size 12 --k 10 --seed 42 --base 43
 uv run ktsp --help                            # lista os parâmetros e os padrões
 ```
 
@@ -235,6 +249,7 @@ uv run ktsp --help                            # lista os parâmetros e os padrõ
 | `--size` | Lado da grade (a cidade tem size × size esquinas); ignorado no bairro real | 12 |
 | `--k` | Número de pontos de entrega | 10 |
 | `--seed` | Semente da cidade: ruas, distâncias, base e entregas (no bairro real, só base e entregas) | 42 |
+| `--base` | ID do vértice escolhido como base (substitui uma entrega se coincidir) | gerada |
 | `--sa-seed` | Semente das escolhas aleatórias do Simulated Annealing | 0 |
 | `--t0` | Temperatura inicial | 100 |
 | `--alpha` | Taxa de resfriamento | 0,995 |
@@ -248,7 +263,7 @@ A saída mostra a distância do vizinho mais próximo, o ótimo (para k ≤ 8), 
 Nenhum resultado depende de sorte ou da máquina. A mesma combinação de parâmetros produz sempre a mesma cidade, a mesma rota e a mesma distância:
 
 - **Duas sementes explícitas.** A semente da cidade e a semente do SA são separadas. Assim dá para testar o SA com várias sementes na mesma cidade. As duas têm valor padrão fixo, e o programa não usa nenhuma outra fonte de aleatoriedade (relógio, sistema operacional, etc.).
-- **Mesmo caminho em todas as interfaces.** A CLI e a API da aplicação web chamam a mesma função (`src/ktsp/pipeline.py`). Por isso os mesmos parâmetros dão o mesmo resultado no terminal e no navegador.
+- **Mesmo solver em todas as interfaces.** A CLI e a API usam o mesmo pipeline de execução. A base gerada pode ser substituída com `--base` na CLI ou selecionada no mapa da interface; com a mesma cidade, base e parâmetros, os resultados são reproduzíveis.
 - **Versões fixas.** O gerador de números aleatórios do Python só garante a mesma sequência dentro da mesma versão do Python. Por isso o projeto exige o Python 3.12 (`.python-version` e `pyproject.toml`), e o `uv.lock` fixa a versão de cada biblioteca.
 - **Teste de referência.** Um teste automatizado confere a cidade e a rota da execução padrão contra valores gravados. Se `uv run pytest` passa numa máquina, ela reproduz os mesmos resultados.
 

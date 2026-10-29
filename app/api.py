@@ -1,17 +1,18 @@
 """API HTTP simples para a interface React do k-TSP.
 
-O mapa da interface (Leaflet) recebe posições em ``[lat, lng]``: no bairro real
-são latitude e longitude; a grade sintética, sem geografia, é desenhada num
-plano com ``[y, x]``. Rotas e arestas vão como números de vértice, e
-``positions[v]`` dá a posição do vértice ``v``.
+O mapa recebe ``positions`` indexado pelo id do vértice. Cada posição segue o
+formato do Leaflet: ``[lat, lng]`` no bairro real e ``[y, x]`` na grade.
+Rotas e arestas contêm ids de vértices, não coordenadas.
 """
 
 import json
+import random
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from ktsp import pipeline
 from ktsp.annealing import AnnealingParams
 from ktsp.baselines import MAX_BRUTE_FORCE_K, brute_force
+from ktsp.instance import Instance
 from ktsp.solution import Route, route_cost
 from ktsp.street_map import load_street_map
 
@@ -40,42 +41,88 @@ def _city_layer(city: str) -> dict:
 
 
 def solve(payload: dict) -> dict:
-    """Gera a instância, executa o SA e serializa os dados da visualização."""
+    """Gera duas rotas com a mesma lista de entregas e bases distintas."""
     city = str(payload.get("city", pipeline.DEFAULT_CITY))
     size = int(payload.get("size", pipeline.DEFAULT_SIZE))
     k = int(payload.get("k", pipeline.DEFAULT_K))
     seed = int(payload.get("seed", pipeline.DEFAULT_SEED))
     sa_seed = int(payload.get("saSeed", pipeline.DEFAULT_SA_SEED))
+    route_base = payload.get("routeBase", "selected")
+    random_seed_value = payload.get("randomSeed")
+    random_seed = (
+        int(random_seed_value)
+        if random_seed_value is not None
+        else random.SystemRandom().getrandbits(32)
+    )
+    requested_base = payload.get("base")
     initial_temperature = float(
         payload.get("initialTemperature", DEFAULT_PARAMS.initial_temperature)
     )
     cooling_rate = float(payload.get("coolingRate", DEFAULT_PARAMS.cooling_rate))
     max_iterations = int(payload.get("maxIterations", DEFAULT_PARAMS.max_iterations))
     tabu_tenure = int(payload.get("tabuTenure", DEFAULT_PARAMS.tabu_tenure))
+
     if city not in pipeline.CITIES:
         raise ValueError("Cidade desconhecida.")
     if city == "grid" and not 4 <= size <= 25:
         raise ValueError("O tamanho da grade deve estar entre 4 e 25.")
-    max_k = min(MAX_K, size * size - 1) if city == "grid" else MAX_K
-    if not 1 <= k <= max_k:
-        raise ValueError("A quantidade de entregas não é válida para esta cidade.")
     if initial_temperature <= 0 or not 0.9 <= cooling_rate <= 0.9999:
         raise ValueError("Confira a temperatura inicial e a taxa de resfriamento.")
     if not 10 <= max_iterations <= 200000:
         raise ValueError("O máximo de iterações deve estar entre 10 e 200.000.")
     if not 0 <= tabu_tenure <= 100:
         raise ValueError("A lista tabu deve ter entre 0 e 100 movimentos.")
+    if route_base not in ("selected", "random"):
+        raise ValueError("A base exibida deve ser 'selected' ou 'random'.")
+    if random_seed < 0:
+        raise ValueError("A semente da base aleatória não pode ser negativa.")
+    if requested_base is not None and (
+        not isinstance(requested_base, int) or isinstance(requested_base, bool)
+    ):
+        raise ValueError("A base deve ser informada como id de vértice inteiro.")
 
     params = AnnealingParams(
         initial_temperature, cooling_rate, max_iterations, tabu_tenure
     )
-    run = pipeline.solve(size, k, seed, sa_seed, params, city)
+    generated = pipeline.build_instance(city, size, k, seed)
+    graph = generated.graph
+    if not 1 <= k <= min(MAX_K, graph.number_of_nodes() - 2):
+        raise ValueError(
+            "A quantidade de entregas deve reservar duas posições para as bases."
+        )
+
+    selected_base = generated.base if requested_base is None else requested_base
+    if selected_base not in graph:
+        if city == "grid":
+            raise ValueError("A posição da base deve estar dentro da grade.")
+        raise ValueError("O id da base não existe no mapa da cidade.")
+
+    # Se a base escolhida era uma entrega, a base sorteada ocupa esse lugar na
+    # lista; assim as duas bases e todos os pontos de entrega seguem distintos.
+    deliveries = tuple(
+        generated.base if delivery == selected_base else delivery
+        for delivery in generated.deliveries
+    )
+    selected_instance = Instance(graph=graph, base=selected_base, deliveries=deliveries)
+
+    random_candidates = sorted(
+        node for node in graph if node != selected_base and node not in deliveries
+    )
+    random_base = random.Random(random_seed).choice(random_candidates)
+    random_instance = Instance(graph=graph, base=random_base, deliveries=deliveries)
+    instances = {"selected": selected_instance, "random": random_instance}
+    runs = {
+        strategy: pipeline.solve_instance(instance, sa_seed, params)
+        for strategy, instance in instances.items()
+    }
+
+    run = runs[route_base]
     instance, table, initial, steps = run.instance, run.table, run.initial, run.steps
     optimum = brute_force(table) if k <= MAX_BRUTE_FORCE_K else None
-    graph = instance.graph
-    positions = [  # pos é (x, y): longitude e latitude no bairro real
-        [graph.nodes[v]["pos"][1], graph.nodes[v]["pos"][0]]
-        for v in range(graph.number_of_nodes())
+    # Os dois mapas suportados usam ids inteiros contíguos de 0 a n-1.
+    positions = [
+        [graph.nodes[node]["pos"][1], graph.nodes[node]["pos"][0]]
+        for node in range(graph.number_of_nodes())
     ]
 
     # Limita a resposta ao navegador, mantendo início, fim e evolução visível.
@@ -86,6 +133,34 @@ def solve(payload: dict) -> dict:
 
     best = Route.from_order(steps[-1].best_order, table)
     current = Route.from_order(steps[-1].current_order, table)
+    comparisons = []
+    for strategy, strategy_run in runs.items():
+        strategy_steps = strategy_run.steps
+        strategy_table = strategy_run.table
+        strategy_best = Route.from_order(strategy_steps[-1].best_order, strategy_table)
+        strategy_initial = Route.from_order(strategy_run.initial, strategy_table)
+        strategy_initial_cost = strategy_initial.cost
+        comparison_base = strategy_run.instance.base
+        comparisons.append(
+            {
+                "strategy": strategy,
+                "base": comparison_base,
+                "baseNode": comparison_base,
+                "basePosition": positions[comparison_base],
+                "initialCost": strategy_initial_cost,
+                "bestCost": strategy_best.cost,
+                "improvementPct": (
+                    100
+                    * (strategy_initial_cost - strategy_best.cost)
+                    / strategy_initial_cost
+                ),
+                "initialVisits": list(strategy_initial.visits),
+                "bestVisits": list(strategy_best.visits),
+                "bestVertexPath": list(strategy_best.path),
+                "iterations": strategy_steps[-1].iteration,
+            }
+        )
+
     result = {
         "city": city,
         **_city_layer(city),
@@ -94,7 +169,12 @@ def solve(payload: dict) -> dict:
         "saSeed": sa_seed,
         "tabuTenure": tabu_tenure,
         "k": k,
-        "base": instance.base,
+        "routeBase": route_base,
+        "randomSeed": random_seed,
+        "comparisons": comparisons,
+        "base": selected_instance.base,
+        "displayBase": instance.base,
+        "basePosition": positions[selected_instance.base],
         "deliveries": list(instance.deliveries),
         "edges": [[u, v] for u, v in graph.edges],
         "positions": positions,
