@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Activity, ArrowDownRight, Bike, ChevronDown, CircleHelp, Play, RotateCcw, SlidersHorizontal, Sparkles } from 'lucide-react';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
-const defaults = { seed: 42, size: 12, k: 10, initialTemperature: 100, coolingRate: 0.995, maxIterations: 5000 };
+// Mesmos valores padrão de src/ktsp/pipeline.py e AnnealingParams.
+const defaults = { seed: 42, saSeed: 0, size: 12, k: 10, initialTemperature: 100, coolingRate: 0.995, maxIterations: 5000 };
 const fmt = (value, digits = 0) => Number(value).toLocaleString('pt-BR', { maximumFractionDigits: digits });
 
 function Field({ label, value, onChange, min, max, step = 1, suffix }) {
@@ -73,7 +74,8 @@ export default function App() {
     <aside className="sidebar"><div className="brand"><div className="brand-mark"><Bike size={21}/></div><div><strong>RotaLab</strong><small>OTIMIZAÇÃO DE ROTAS</small></div></div>
       <div className="side-section"><div className="section-heading"><span>CONFIGURAÇÃO</span><SlidersHorizontal size={15}/></div>
         <div className="group-label">Instância da cidade</div>
-        <label className="number-field">Semente <input type="number" min="0" value={params.seed} onChange={(e) => set('seed')(Number(e.target.value))}/></label>
+        <label className="number-field">Semente da cidade <input type="number" min="0" value={params.seed} onChange={(e) => set('seed')(Number(e.target.value))}/></label>
+        <label className="number-field">Semente do SA <input type="number" min="0" value={params.saSeed} onChange={(e) => set('saSeed')(Number(e.target.value))}/></label>
         <Field label="Tamanho da grade" value={params.size} onChange={set('size')} min={4} max={25} suffix=" × "/>
         <Field label="Pontos de entrega (k)" value={params.k} onChange={set('k')} min={1} max={Math.min(40, params.size ** 2 - 1)}/>
         <div className="group-label algorithm-label">Simulated Annealing</div>

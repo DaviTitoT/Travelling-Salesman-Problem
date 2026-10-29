@@ -1,14 +1,14 @@
 """API HTTP simples para a interface React do k-TSP."""
 
 import json
-import random
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from ktsp.annealing import AnnealingParams, anneal
-from ktsp.baselines import MAX_BRUTE_FORCE_K, brute_force, nearest_neighbor
-from ktsp.distances import build_distance_table
-from ktsp.instance import generate_instance
+from ktsp import pipeline
+from ktsp.annealing import AnnealingParams
+from ktsp.baselines import MAX_BRUTE_FORCE_K, brute_force
 from ktsp.solution import Route, route_cost
+
+DEFAULT_PARAMS = AnnealingParams()
 
 
 def _path_positions(
@@ -20,12 +20,15 @@ def _path_positions(
 
 def solve(payload: dict) -> dict:
     """Gera a instância, executa o SA e serializa os dados da visualização."""
-    size = int(payload.get("size", 12))
-    k = int(payload.get("k", 10))
-    seed = int(payload.get("seed", 42))
-    initial_temperature = float(payload.get("initialTemperature", 100))
-    cooling_rate = float(payload.get("coolingRate", 0.995))
-    max_iterations = int(payload.get("maxIterations", 5000))
+    size = int(payload.get("size", pipeline.DEFAULT_SIZE))
+    k = int(payload.get("k", pipeline.DEFAULT_K))
+    seed = int(payload.get("seed", pipeline.DEFAULT_SEED))
+    sa_seed = int(payload.get("saSeed", pipeline.DEFAULT_SA_SEED))
+    initial_temperature = float(
+        payload.get("initialTemperature", DEFAULT_PARAMS.initial_temperature)
+    )
+    cooling_rate = float(payload.get("coolingRate", DEFAULT_PARAMS.cooling_rate))
+    max_iterations = int(payload.get("maxIterations", DEFAULT_PARAMS.max_iterations))
     if not 4 <= size <= 25:
         raise ValueError("O tamanho da grade deve estar entre 4 e 25.")
     if not 1 <= k <= min(40, size * size - 1):
@@ -35,15 +38,12 @@ def solve(payload: dict) -> dict:
     if not 10 <= max_iterations <= 200000:
         raise ValueError("O máximo de iterações deve estar entre 10 e 200.000.")
 
-    instance = generate_instance(size, size, k, seed)
-    table = build_distance_table(instance)
-    initial = nearest_neighbor(table)
     params = AnnealingParams(initial_temperature, cooling_rate, max_iterations)
-    steps = list(anneal(table, initial, params, random.Random(seed)))
+    run = pipeline.solve(size, k, seed, sa_seed, params)
+    instance, table, initial, steps = run.instance, run.table, run.initial, run.steps
     optimum = brute_force(table) if k <= MAX_BRUTE_FORCE_K else None
     positions = {
-        node: [column, row]
-        for node, (row, column) in instance.graph.nodes(data="pos")
+        node: [column, row] for node, (row, column) in instance.graph.nodes(data="pos")
     }
 
     # Limita a resposta ao navegador, mantendo início, fim e evolução visível.
@@ -57,12 +57,11 @@ def solve(payload: dict) -> dict:
     result = {
         "size": size,
         "seed": seed,
+        "saSeed": sa_seed,
         "k": k,
         "base": positions[instance.base],
         "deliveries": [positions[node] for node in instance.deliveries],
-        "edges": [
-            [positions[u], positions[v]] for u, v in instance.graph.edges
-        ],
+        "edges": [[positions[u], positions[v]] for u, v in instance.graph.edges],
         "positions": positions,
         "steps": [
             {
