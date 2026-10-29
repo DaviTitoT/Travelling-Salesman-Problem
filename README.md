@@ -31,15 +31,15 @@ Esse problema é uma variação do clássico **Problema do Caixeiro Viajante** (
 
 ## 2. Por que é difícil?
 
-O TSP é **NP-difícil**: não se conhece algoritmo que encontre a melhor rota em tempo polinomial. A forma direta de resolvê-lo é testar todas as ordens possíveis, e o número de ordens cresce como k! (fatorial). Cada rota aparece em duas ordens, uma para cada sentido (as distâncias valem nos dois sentidos), então existem k!/2 rotas diferentes:
+O TSP é **NP-difícil**: não se conhece algoritmo que encontre a melhor rota em tempo polinomial. A forma direta de resolvê-lo é testar todas as ordens possíveis, e o número de ordens cresce como k! (fatorial). Em um grafo não direcionado, inverter uma ordem produz a mesma distância, então há no máximo k!/2 classes de ordens equivalentes por simetria. Empates entre caminhos mínimos também podem fazer ordens diferentes corresponderem à mesma rota física; por isso, a tabela abaixo mostra apenas a contagem exata de ordens:
 
-| Pontos (k) | Ordens possíveis (k!) | Rotas diferentes (k!/2) |
-| ---: | ---: | ---: |
-| 5 | 120 | 60 |
-| 8 | 40 320 | 20 160 |
-| 10 | 3 628 800 | 1 814 400 |
-| 15 | ≈ 1,3 × 10¹² | ≈ 6,5 × 10¹¹ |
-| 30 | ≈ 2,7 × 10³² | ≈ 1,3 × 10³² |
+| Pontos (k) | Ordens possíveis (k!) |
+| ---: | ---: |
+| 5 | 120 |
+| 8 | 40 320 |
+| 10 | 3 628 800 |
+| 15 | ≈ 1,3 × 10¹² |
+| 30 | ≈ 2,7 × 10³² |
 
 Com 30 entregas, testar todas as ordens é inviável. Por isso usamos uma **metaheurística**: um método que não garante o ótimo, mas encontra soluções muito boas em pouco tempo.
 
@@ -60,7 +60,7 @@ Sejam G = (V, E) o grafo da cidade, com distância c_e em cada rua e, b a base e
 
 **Dados.** Para cada par de locais i, j em P, d_ij é a distância do **menor caminho** de i até j em G. É por meio de d_ij que o modelo trata o grafo não completo: dois pontos sem rua direta entre si continuam ligados, pelo caminho mais curto, que pode passar por quaisquer outras esquinas.
 
-**Variáveis de decisão.** Para cada par de locais distintos i, j em P, x_ij vale 1 se a rota vai de i direto para j (pelo menor caminho) e 0 caso contrário. São (k + 1) · k variáveis.
+**Variáveis de decisão.** Para cada par de locais distintos i, j em P, x_ij ∈ {0, 1} vale 1 se a rota vai de i direto para j (pelo menor caminho) e 0 caso contrário. São (k + 1) · k variáveis.
 
 **Função objetivo.** Minimizar a distância total:
 
@@ -75,7 +75,9 @@ Sejam G = (V, E) o grafo da cidade, com distância c_e em cada rua e, b a base e
 
 As restrições 1 e 2 garantem que cada ponto de W é visitado exatamente uma vez. As restrições 1 a 3 garantem que a rota começa e termina na base. A restrição de usar só ruas existentes é cumprida pela expansão de cada trecho no seu menor caminho em G.
 
-**Representação da solução.** O algoritmo não manipula as variáveis x_ij diretamente. Ele guarda uma **permutação π** dos k pontos de W, e a rota é b → W[π₁] → … → W[πₖ] → b. Cada permutação corresponde a uma única escolha de x (x_ij = 1 exatamente para os pares consecutivos da rota) que cumpre as restrições 1 a 4. Assim, o algoritmo **nunca gera uma solução inválida**, e a função objetivo é calculada como f(π) = d(b, π₁) + Σ d(πᵢ, πᵢ₊₁) + d(πₖ, b).
+**Representação da solução.** O algoritmo não manipula as variáveis x_ij diretamente. Ele guarda uma **permutação π** dos k pontos de W, e a rota é b → W[π₁] → … → W[πₖ] → b. Cada permutação define os arcos x_ij entre paradas consecutivas, incluindo saída e retorno à base. Essa representação cumpre as restrições do modelo, e a função objetivo é calculada como f(π) = d(b, π₁) + Σ d(πᵢ, πᵢ₊₁) + d(πₖ, b).
+
+Neste modelo, “visitar” significa fazer a parada planejada para atender a entrega. Um caminho mínimo pode atravessar fisicamente o vértice de outra entrega sem alterar a ordem das paradas; o atendimento continua associado à posição desse ponto na permutação.
 
 ### Da cidade aos pontos que importam
 
@@ -146,7 +148,7 @@ O passo 3 é o centro do algoritmo:
 
 O algoritmo do projeto é o Simulated Annealing. O modo híbrido existe só para comparação e fica desligado por padrão.
 
-Quando a busca se aproxima de um ótimo local e a temperatura já está baixa, o SA passa a sortear repetidamente os mesmos vizinhos e rejeitá-los. Em execuções medidas, cerca de 85% dos vizinhos avaliados já tinham sido avaliados antes. O modo híbrido acrescenta uma **lista tabu** com os últimos movimentos 2-opt sorteados (os pares de posições invertidas):
+O modo híbrido SA + Tabu é uma opção adicional da aplicação, desativada por padrão; o algoritmo principal do tema é o SA puro. Em uma execução exploratória que motivou essa opção, cerca de 85% dos vizinhos sorteados repetiam movimentos recentes e eram rejeitados. Esse percentual descreve aquela execução, não é uma propriedade geral do SA. O modo híbrido acrescenta uma **lista tabu** com os últimos movimentos 2-opt sorteados (os pares de posições invertidas):
 
 - um movimento que está na lista **não é avaliado** e não gasta orçamento: outro é sorteado no lugar;
 - todo movimento avaliado entra na lista e sai dela depois de L novos movimentos, em que L é o tamanho da lista;
@@ -154,7 +156,7 @@ Quando a busca se aproxima de um ótimo local e a temperatura já está baixa, o
 
 A lista guarda posições, não rotas: depois que um movimento é aceito, as mesmas posições passam a gerar outro vizinho. É uma simplificação comum da Tabu Search, que evita desfazer imediatamente um movimento e reavaliar o mesmo vizinho enquanto a solução atual não muda.
 
-Na aplicação, o seletor **Modo de busca** escolhe entre *SA puro* e *SA + Tabu* e, no segundo caso, mostra o tamanho da lista. Para comparar, rode a mesma cidade com as mesmas sementes nos dois modos.
+Na aplicação, o seletor **Modo de busca** escolhe entre *SA puro* e *SA + Tabu* e, no segundo caso, mostra o tamanho da lista. Para comparar, rode a mesma cidade com as mesmas sementes nos dois modos. Os resultados da seção 7 usam SA puro.
 
 ### Como saber se a rota é boa?
 
@@ -172,7 +174,9 @@ A aplicação web permite ver o Simulated Annealing trabalhando, iteração por 
 ### Instalação e execução
 
 É preciso ter o [uv](https://docs.astral.sh/uv/) e o Node.js instalados. O
-solver continua em Python; a interface usa React e Vite.
+solver continua em Python; a interface usa React e Vite, com aprovação prévia
+do professor para o uso de outra linguagem no front-end, conforme exige o
+enunciado.
 
 ```bash
 uv sync
