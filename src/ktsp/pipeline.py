@@ -44,6 +44,7 @@ def solve(
     seed: int = DEFAULT_SEED,
     sa_seed: int = DEFAULT_SA_SEED,
     params: AnnealingParams = AnnealingParams(),  # noqa: B008 (imutável)
+    base: int | None = None,
 ) -> Run:
     """Gera a cidade ``size`` x ``size`` e roda o SA a partir do vizinho mais próximo.
 
@@ -53,11 +54,20 @@ def solve(
         seed: Semente da cidade (ruas, pesos, base e entregas).
         sa_seed: Semente das escolhas aleatórias do SA.
         params: Parâmetros do SA.
+        base: Vértice que será usado como base; por padrão, mantém a base gerada.
 
     Returns:
         A execução completa, com o histórico de passos.
     """
     instance = generate_instance(size, size, k, seed)
+    if base is not None:
+        if base not in instance.graph:
+            raise ValueError(f"A base {base} não existe na grade de tamanho {size}.")
+        deliveries = tuple(
+            instance.base if delivery == base else delivery
+            for delivery in instance.deliveries
+        )
+        instance = Instance(graph=instance.graph, base=base, deliveries=deliveries)
     return solve_instance(instance, sa_seed, params)
 
 

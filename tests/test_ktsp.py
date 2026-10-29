@@ -72,6 +72,22 @@ def test_same_parameters_give_identical_runs():
     )
 
 
+def test_solve_uses_configured_base_and_keeps_deliveries_distinct():
+    generated = generate_instance(4, 4, 4, seed=7)
+    selected_base = generated.deliveries[0]
+
+    run = solve(size=4, k=4, seed=7, base=selected_base)
+
+    assert run.instance.base == selected_base
+    assert selected_base not in run.instance.deliveries
+    assert generated.base in run.instance.deliveries
+
+
+def test_solve_rejects_base_outside_grid():
+    with pytest.raises(ValueError, match="não existe na grade"):
+        solve(size=4, k=4, seed=7, base=16)
+
+
 def test_default_run_matches_reference_values():
     # Valores gravados em Python 3.12; se mudarem, os resultados deixaram de ser
     # reproduzíveis entre máquinas (versão do Python, networkx ou do algoritmo).
@@ -105,6 +121,19 @@ def test_cli_prints_reproducible_command(capsys):
     main(["--k", "4", "--seed", "7"])
     assert capsys.readouterr().out == first
     assert "--sa-seed 0" in first and "Distância total (SA)" in first
+
+
+def test_cli_accepts_and_repeats_configured_base(capsys):
+    base = generate_instance(4, 4, 4, seed=7).deliveries[0]
+    args = ["--size", "4", "--k", "4", "--seed", "7", "--base", str(base)]
+
+    main(args)
+    first = capsys.readouterr().out
+    main(args)
+
+    assert capsys.readouterr().out == first
+    assert f"--base {base}" in first
+    assert f"Base: {base}" in first
 
 
 @pytest.mark.parametrize("alpha", [0.5, 0.99, 0.999])

@@ -1,6 +1,6 @@
 """Linha de comando: resolve uma instância e imprime a rota.
 
-Execução: ``uv run ktsp --size 12 --k 10 --seed 42 --sa-seed 0``.
+Execução: ``uv run ktsp --size 12 --k 10 --seed 42 --base 43 --sa-seed 0``.
 Todos os parâmetros têm valor padrão fixo e são impressos junto do resultado,
 para que qualquer execução possa ser repetida a partir da própria saída.
 """
@@ -33,6 +33,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--k", type=int, default=DEFAULT_K, help="pontos de entrega")
     parser.add_argument(
         "--seed", type=int, default=DEFAULT_SEED, help="semente da cidade"
+    )
+    parser.add_argument(
+        "--base",
+        type=int,
+        default=None,
+        help="id do vértice usado como base (padrão: base gerada pela semente)",
     )
     parser.add_argument(
         "--sa-seed", type=int, default=DEFAULT_SA_SEED, help="semente do SA"
@@ -70,13 +76,15 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = parser.parse_args(argv)
     try:
         params = AnnealingParams(args.t0, args.alpha, args.iterations, args.tabu_tenure)
-        run = solve(args.size, args.k, args.seed, args.sa_seed, params)
+        run = solve(args.size, args.k, args.seed, args.sa_seed, params, base=args.base)
     except ValueError as error:
         parser.error(str(error))
 
     best = Route.from_order(run.steps[-1].best_order, run.table)
     initial = Route.from_order(run.initial, run.table)
-    flags = " ".join(f"--{n.replace('_', '-')} {v}" for n, v in vars(args).items())
+    flags = " ".join(
+        f"--{n.replace('_', '-')} {v}" for n, v in vars(args).items() if v is not None
+    )
     print(f"Repetir esta execução: ktsp {flags}")
     print(f"Iterações executadas: {run.steps[-1].iteration}")
     print(f"Distância do vizinho mais próximo: {initial.cost:g}")

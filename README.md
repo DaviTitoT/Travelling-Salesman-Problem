@@ -212,6 +212,7 @@ encaminha as chamadas `/api` para a API Python em `http://127.0.0.1:8000`.
 ```bash
 uv run ktsp                                   # todos os parâmetros com o valor padrão
 uv run ktsp --size 15 --k 8 --seed 7 --sa-seed 3 --t0 50 --alpha 0.999
+uv run ktsp --size 12 --k 10 --seed 42 --base 43
 uv run ktsp --help                            # lista os parâmetros e os padrões
 ```
 
@@ -219,7 +220,8 @@ uv run ktsp --help                            # lista os parâmetros e os padrõ
 | --- | --- | --- |
 | `--size` | Lado da grade (a cidade tem size × size esquinas) | 12 |
 | `--k` | Número de pontos de entrega | 10 |
-| `--seed` | Semente da cidade: ruas, distâncias, base e entregas | 42 |
+| `--seed` | Semente da cidade: ruas, distâncias e base/entregas geradas | 42 |
+| `--base` | ID do vértice escolhido como base (substitui uma entrega se coincidir) | gerada |
 | `--sa-seed` | Semente das escolhas aleatórias do Simulated Annealing | 0 |
 | `--t0` | Temperatura inicial | 100 |
 | `--alpha` | Taxa de resfriamento | 0,995 |
@@ -233,7 +235,7 @@ A saída mostra a distância do vizinho mais próximo, o ótimo (para k ≤ 8), 
 Nenhum resultado depende de sorte ou da máquina. A mesma combinação de parâmetros produz sempre a mesma cidade, a mesma rota e a mesma distância:
 
 - **Duas sementes explícitas.** A semente da cidade e a semente do SA são separadas. Assim dá para testar o SA com várias sementes na mesma cidade. As duas têm valor padrão fixo, e o programa não usa nenhuma outra fonte de aleatoriedade (relógio, sistema operacional, etc.).
-- **Mesmo caminho em todas as interfaces.** A CLI e a API da aplicação web chamam a mesma função (`src/ktsp/pipeline.py`). Por isso os mesmos parâmetros dão o mesmo resultado no terminal e no navegador.
+- **Mesmo solver em todas as interfaces.** A CLI e a API usam o mesmo pipeline de execução. A base gerada pode ser substituída com `--base` na CLI ou selecionada no mapa da interface; com a mesma cidade, base e parâmetros, os resultados são reproduzíveis.
 - **Versões fixas.** O gerador de números aleatórios do Python só garante a mesma sequência dentro da mesma versão do Python. Por isso o projeto exige o Python 3.12 (`.python-version` e `pyproject.toml`), e o `uv.lock` fixa a versão de cada biblioteca.
 - **Teste de referência.** Um teste automatizado confere a cidade e a rota da execução padrão contra valores gravados. Se `uv run pytest` passa numa máquina, ela reproduz os mesmos resultados.
 
